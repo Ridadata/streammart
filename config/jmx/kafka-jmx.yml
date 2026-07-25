@@ -2,6 +2,19 @@
 # JMX Exporter Configuration for Kafka
 # Exports Kafka broker metrics to Prometheus format
 # ==============================================================================
+#
+# hostPort is required: this exporter runs as its own container (standalone
+# httpserver mode, not a javaagent attached to the Kafka JVM), so it has no
+# way to know which JMX endpoint to poll without being told explicitly. This
+# was missing, which meant the exporter had nothing to scrape and exposed no
+# real Kafka metrics despite the container running. Kafka's JMX remote
+# endpoint is enabled by KAFKA_JMX_PORT/KAFKA_JMX_HOSTNAME in the `kafka`
+# service's environment (docker-compose.yml) — the cp-kafka image's
+# entrypoint wires those into the JVM's remote-JMX flags automatically.
+
+hostPort: "kafka:9991"
+lowercaseOutputName: true
+lowercaseOutputLabelNames: true
 
 rules:
   # Kafka broker metrics

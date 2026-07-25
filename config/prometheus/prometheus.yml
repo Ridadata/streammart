@@ -34,6 +34,16 @@ scrape_configs:
           service: 'prometheus'
 
   # ============================================================================
+  # KAFKA CONSUMER LAG
+  # ============================================================================
+  - job_name: 'kafka-exporter'
+    static_configs:
+      - targets: ['kafka-exporter:9308']
+        labels:
+          service: 'kafka'
+          component: 'consumer-lag'
+
+  # ============================================================================
   # KAFKA METRICS (JMX Exporter)
   # ============================================================================
   - job_name: 'kafka-jmx'
@@ -70,22 +80,35 @@ scrape_configs:
           service: 'minio'
 
   # ============================================================================
-  # SPARK METRICS (if Spark metrics endpoint is exposed)
-  # Note: Requires spark.metrics.conf configuration
+  # SPARK METRICS — built-in PrometheusServlet sink
+  # config/spark/metrics.properties is mounted into spark-master and both
+  # spark-worker-* containers at /opt/spark/conf/metrics.properties, which
+  # Spark loads automatically. See that file for why each instance
+  # (master/applications/worker) needs its own metrics path.
   # ============================================================================
-  # - job_name: 'spark-master'
-  #   static_configs:
-  #     - targets: ['spark-master:8080']
-  #       labels:
-  #         service: 'spark'
-  #         component: 'master'
+  - job_name: 'spark-master'
+    metrics_path: /metrics/master/prometheus
+    static_configs:
+      - targets: ['spark-master:8080']
+        labels:
+          service: 'spark'
+          component: 'master'
 
-  # - job_name: 'spark-worker'
-  #   static_configs:
-  #     - targets: ['spark-worker-1:8081']
-  #       labels:
-  #         service: 'spark'
-  #         component: 'worker'
+  - job_name: 'spark-applications'
+    metrics_path: /metrics/applications/prometheus
+    static_configs:
+      - targets: ['spark-master:8080']
+        labels:
+          service: 'spark'
+          component: 'applications'
+
+  - job_name: 'spark-worker'
+    metrics_path: /metrics/worker/prometheus
+    static_configs:
+      - targets: ['spark-worker-1:8081', 'spark-worker-2:8081']
+        labels:
+          service: 'spark'
+          component: 'worker'
 
   # ============================================================================
   # KAFKA UI EXPORTER (if available)

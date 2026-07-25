@@ -37,9 +37,11 @@ The pipeline ingests raw events from a generator, processes them through a serie
 
 - `docker-compose.yml`: The master file that defines all services, their configurations, and their relationships. This is the single source of truth for the entire stack.
 - `.env`: Contains default environment variables for configuring services, such as event rates, memory limits, and connection strings.
-- `sql/`: This directory contains all SQL scripts, including initialization scripts and rollup/retention jobs.
-- `spark-jobs/`: While not present as a directory, the Spark jobs defined within `docker-compose.yml` are central to the data processing logic.
+- `sql/`: Contains `init_postgres.sql` (schema DDL) and `maintenance.sql` (DQ heartbeat + retention, run every 60s by the `postgres-maintenance` service — this file used to be called `rollups.sql`, see CLAUDE.md for why it was renamed and trimmed down).
+- `src/spark_jobs/`: The four PySpark Structured Streaming jobs (`raw_event_writer.py`, `window_aggregator.py`, `session_tracker.py`, `revenue_aggregator.py`), mounted into the Spark containers and submitted via `spark-submit` per the commands in `docker-compose.yml`.
+- `src/airflow_dags/`: The four Airflow DAGs (batch reconciliation, daily summary, data quality, pipeline health check).
 - `docs/`: Contains all project documentation, including design decisions and troubleshooting guides.
+- `CLAUDE.md`: Authoritative architecture reference, table-ownership matrix, coding standards, and roadmap. Read it before making non-trivial changes.
 
 ## 6. Data Schema
 
@@ -62,22 +64,9 @@ The following topics are created by the `kafka-topics-init` service defined in `
 
 ### PostgreSQL Tables
 
-The following tables are defined in `sql/init_postgres.sql` and `sql/rollups.sql`.
+The following tables are defined in `sql/init_postgres.sql`. **There is no `events_raw` table** — raw, unaggregated events are never written to Postgres; they live in MinIO as partitioned Parquet, written by `raw_event_writer.py`. Postgres only holds aggregated/derived tables. Every table has exactly one writer — see the table-ownership matrix in `CLAUDE.md` before adding a new write path to any of them.
 
-#### `events_raw`
-Stores all incoming events with a 3-day retention policy.
-
-| Column Name  | Data Type   | Nullable | Description                               |
-| :----------- | :---------- | :------: | :---------------------------------------- |
-| `event_id`   | `UUID`      |    No    | Primary Key, auto-generated.              |
-| `session_id` | `TEXT`      |    No    | Identifier for the user session.          |
-| `user_id`    | `TEXT`      |   Yes    | Identifier for the logged-in user.        |
-| `event_type` | `TEXT`      |    No    | The type of event (e.g., 'pageview').     |
-| `timestamp`  | `TIMESTAMPTZ` |    No    | Timestamp of when the event occurred.     |
-| `properties` | `JSONB`     |    No    | A JSON object with event-specific data.   |
-| `created_at` | `TIMESTAMPTZ` |    No    | Timestamp of when the record was created. |
-
-#### `metrics_1min`
+#### `metrics_1min` / `metrics_5min`
 Aggregated metrics computed by a Spark job in 1-minute windows.
 
 | Column Name       | Data Type   | Nullable | Description                               |
@@ -111,7 +100,7 @@ Contains sessionized user behavior and conversion tracking.
 | `created_at`          | `TIMESTAMPTZ` |    No    | Timestamp of when the record was created.    |
 | `updated_at`          | `TIMESTAMPTZ` |    No    | Timestamp of when the record was updated.    |
 
-*(Other tables like `metrics_5min`, `product_performance`, `daily_revenue`, `data_quality_checks`, and `pipeline_monitoring` also exist but are summarized here for brevity.)*
+*(Other tables — `product_performance`, `daily_revenue`, `daily_summary`, `product_daily_performance`, `data_quality_checks`, `pipeline_monitoring` — also exist; see `sql/init_postgres.sql` for full DDL and `CLAUDE.md` for the ownership matrix.)*
 
 ### MinIO Buckets
 
@@ -125,45 +114,60 @@ The following Spark Streaming jobs are defined as services in `docker-compose.ym
 
 ### Job 1: `StreamMart-RawEventWriter`
 
-This job reads raw events from multiple Kafka topics and writes them to MinIO for archival and batch processing.
+Reads all 5 event topics and writes them to MinIO for archival and reprocessing, preserving the full raw JSON payload (schema-on-read design — see the module docstring in `raw_event_writer.py`).
 
 | Parameter           | Value                                                                                             |
 | ------------------- | ------------------------------------------------------------------------------------------------- |
 | **Purpose**         | Archives all raw event streams to the data lake (MinIO).                                          |
-| **Input Source**    | Kafka topics: `events.pageview`, `events.product_click`, `events.add_to_cart`, `events.purchase`. |
-| **Output Sink**     | MinIO bucket: `raw-events` in Parquet format.                                                     |
-| **Trigger**         | Continuous processing (default micro-batch trigger).                                              |
-| **Checkpoint Path** | `/tmp/checkpoints/raw_event_writer` (inside the container).                                       |
+| **Input Source**    | All 5 event topics via `subscribePattern`.                                                        |
+| **Output Sink**     | `s3a://raw-events/events/year=/month=/day=/event_type=` in Parquet format.                        |
+| **Trigger**         | Continuous processing (default micro-batch trigger), `outputMode("append")`.                      |
+| **Checkpoint Path** | `/tmp/checkpoints/raw-event-writer` (inside the container).                                       |
 | **Deploy Mode**     | `client`                                                                                          |
 | **Executor Memory** | `768M`                                                                                            |
 | **Executor Cores**  | `1`                                                                                               |
 
 ### Job 2: `StreamMart-WindowAggregator`
 
-This job consumes various event streams from Kafka, performs windowed aggregations, and writes the results to PostgreSQL.
+Consumes all 5 event topics and runs **two independent** windowed aggregations off the same parsed stream — 1-minute and 5-minute — each writing to its own table. metrics_5min is *not* derived from metrics_1min (summing pre-aggregated approx-distinct counts across windows is mathematically invalid — see the module docstring).
 
 | Parameter           | Value                                                                                             |
 | ------------------- | ------------------------------------------------------------------------------------------------- |
-| **Purpose**         | Calculates real-time metrics (e.g., event counts, unique users) over tumbling windows.            |
-| **Input Source**    | Kafka topics: `events.pageview`, `events.product_click`, etc.                                     |
-| **Output Sink**     | PostgreSQL table: `metrics_1min`.                                                                 |
-| **Trigger**         | Continuous processing with a likely 1-minute processing time trigger.                             |
-| **Checkpoint Path** | `/tmp/checkpoints/window_aggregator` (inside the container).                                      |
+| **Purpose**         | Real-time event counts, unique sessions, unique users per event type, at two granularities.       |
+| **Input Source**    | All 5 event topics.                                                                                |
+| **Output Sink**     | PostgreSQL tables: `metrics_1min` (30s trigger) and `metrics_5min` (60s trigger).                 |
+| **Trigger**         | `outputMode("update")` — valid here since these are time-window (not session-window) aggregations. |
+| **Checkpoint Path** | `/tmp/checkpoints/window-aggregator/{1min,5min}` (inside the container).                          |
 | **Deploy Mode**     | `client`                                                                                          |
 | **Executor Memory** | `768M`                                                                                            |
 | **Executor Cores**  | `1`                                                                                               |
 
 ### Job 3: `StreamMart-SessionTracker`
 
-This job is responsible for sessionization—grouping events by user session to track user journeys and calculate session-level metrics.
+Sessionizes events by `session_id` using Spark's `session_window` (30-minute inactivity gap).
 
 | Parameter           | Value                                                                                             |
 | ------------------- | ------------------------------------------------------------------------------------------------- |
 | **Purpose**         | Groups events into user sessions and calculates session-level KPIs like duration and conversion.  |
-| **Input Source**    | Kafka topics: `events.pageview`, `events.product_click`, `events.add_to_cart`, `events.purchase`. |
+| **Input Source**    | All 5 event topics.                                                                                |
 | **Output Sink**     | PostgreSQL table: `session_summary`.                                                              |
-| **Trigger**         | Continuous processing, likely using `flatMapGroupsWithState` for session management.              |
-| **Checkpoint Path** | `/tmp/checkpoints/session_tracker` (inside the container).                                        |
+| **Trigger**         | `outputMode("append")` — Spark does **not** support `update` mode for `session_window` aggregations. A session is emitted once, ~40-70 min after its last event (bounded by the 40-minute watermark), not incrementally. |
+| **Checkpoint Path** | `/tmp/checkpoints/session-tracker` (inside the container).                                        |
+| **Deploy Mode**     | `client`                                                                                          |
+| **Executor Memory** | `768M`                                                                                            |
+| **Executor Cores**  | `1`                                                                                               |
+
+### Job 4: `StreamMart-RevenueAggregator`
+
+Reads only `events.purchase`, explodes line items, and aggregates daily product-level revenue with a bounded-state daily tumbling window (see module docstring for why the grouping key must include a real `window()` column, not just a derived date).
+
+| Parameter           | Value                                                                                             |
+| ------------------- | ------------------------------------------------------------------------------------------------- |
+| **Purpose**         | Sole writer of `product_performance` — units sold, revenue, order count per product per day.      |
+| **Input Source**    | `events.purchase` only.                                                                            |
+| **Output Sink**     | PostgreSQL table: `product_performance` (psycopg2 `ON CONFLICT` upsert, not JDBC append).         |
+| **Trigger**         | `outputMode("update")`, 30s trigger.                                                               |
+| **Checkpoint Path** | `/tmp/checkpoints/revenue-aggregator` (inside the container).                                     |
 | **Deploy Mode**     | `client`                                                                                          |
 | **Executor Memory** | `768M`                                                                                            |
 | **Executor Cores**  | `1`                                                                                               |
@@ -243,9 +247,9 @@ docker exec -it streammart-kafka kafka-console-consumer \
 # Connect to PostgreSQL
 docker exec -it streammart-postgres psql -U ${POSTGRES_USER} -d ${POSTGRES_DB}
 
-# Run rollup SQL manually
-docker exec -it streammart-postgres-rollup \
-  psql -h postgres -U ${POSTGRES_USER} -d ${POSTGRES_DB} -f /opt/sql/rollups.sql
+# Run maintenance SQL manually (DQ heartbeat + retention; formerly rollups.sql)
+docker exec -it streammart-postgres-maintenance \
+  psql -h postgres -U ${POSTGRES_USER} -d ${POSTGRES_DB} -f /opt/sql/maintenance.sql
 
 # Restart a failing Spark job
 docker compose restart spark-raw-event-writer

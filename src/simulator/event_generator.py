@@ -17,6 +17,7 @@ REAL-WORLD ANALOG:
 - Companies like Amazon, Netflix generate millions of events per second
 """
 
+import os
 import uuid
 import time
 import random
@@ -40,9 +41,13 @@ from kafka_producer import (
     produce_purchase, produce_abandonment
 )
 
-# Configure logging
+# Configure logging. LOG_LEVEL is set in docker-compose.yml (default INFO) —
+# previously ignored because this was hardcoded to logging.INFO regardless.
+_LOG_LEVEL_NAME = os.getenv('LOG_LEVEL', 'INFO').upper()
+_LOG_LEVEL = getattr(logging, _LOG_LEVEL_NAME, logging.INFO)
+
 logging.basicConfig(
-    level=logging.INFO,
+    level=_LOG_LEVEL,
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
 )
 logger = logging.getLogger(__name__)
@@ -433,15 +438,22 @@ class EventGenerator:
 def main():
     """Entry point"""
     import argparse
-    
+
+    # EVENT_GENERATOR_RATE is set in docker-compose.yml / .env. It's the
+    # default here (not hardcoded to 100) specifically because the container
+    # entrypoint (Dockerfile.event-generator) runs this script with no CLI
+    # args at all — the env var was previously silently ignored in that path.
+    # An explicit --rate still overrides it for local/manual runs.
+    default_rate = int(os.getenv('EVENT_GENERATOR_RATE', '100'))
+
     parser = argparse.ArgumentParser(
         description='StreamMart Event Generator - Simulates realistic e-commerce events'
     )
     parser.add_argument(
         '--rate',
         type=int,
-        default=100,
-        help='Target events per second (default: 100)'
+        default=default_rate,
+        help=f'Target events per second (default: {default_rate}, from EVENT_GENERATOR_RATE env var)'
     )
     parser.add_argument(
         '--duration',

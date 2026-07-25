@@ -39,6 +39,23 @@ scrape_configs:
       - source_labels: ['__meta_docker_container_name']
         regex: '.*docker-proxy.*'
         action: drop
+    # pipeline_stages must live under a scrape_configs job, not at the
+    # document root (a top-level `pipeline_stages:` key is not part of
+    # Promtail's config schema and fails validation on startup — that bug is
+    # why this container previously never started and Loki received nothing).
+    #
+    # None of the services in this stack emit JSON logs (Kafka, Postgres,
+    # Spark, MinIO, etc. all log plain text; the Python event generator uses
+    # a plain "%(levelname)s" format too), so a `json` parsing stage would
+    # never actually extract anything. A regex stage that pulls a log level
+    # out of the free-text line works across all of them and degrades
+    # gracefully — a line with no match just doesn't get a `level` label,
+    # it doesn't fail the pipeline.
+    pipeline_stages:
+      - regex:
+          expression: '.*(?P<level>DEBUG|INFO|WARNING|WARN|ERROR|CRITICAL|FATAL).*'
+      - labels:
+          level:
 
   # ===========================================================================
   # SYSTEM LOGS
@@ -50,16 +67,3 @@ scrape_configs:
         labels:
           job: varlogs
           __path__: /var/log/*log
-
-# ==============================================================================
-# Loki Pipelines (optional log processing)
-# ==============================================================================
-pipeline_stages:
-  - json:
-      expressions:
-        timestamp: timestamp
-        level: level
-        msg: message
-  - labels:
-      level:
-      msg:

@@ -137,8 +137,11 @@ docker compose exec kafka kafka-topics --list --bootstrap-server localhost:9092
 # Delete topic
 docker compose exec kafka kafka-topics --delete --topic events.pageview --bootstrap-server localhost:9092
 
-# Recreate
-bash scripts/init_kafka_topics.sh
+# Recreate all topics using the same one-shot service docker-compose.yml
+# runs automatically on startup (this is the single source of truth for
+# topic definitions — there is deliberately no separate standalone script,
+# to avoid two topic-creation code paths silently drifting apart)
+docker compose run --rm kafka-topics-init
 ```
 
 ---

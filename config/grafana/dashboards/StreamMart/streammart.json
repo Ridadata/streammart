@@ -150,11 +150,11 @@
           "editorMode": "code",
           "format": "table",
           "rawQuery": true,
-          "rawSql": "SELECT ROUND(100.0 * SUM(CASE WHEN event_type='purchase' THEN count ELSE 0 END) / NULLIF(SUM(CASE WHEN event_type='pageview' THEN count ELSE 0 END),0), 2) as value\nFROM metrics_5min\nWHERE window_start >= NOW() - INTERVAL '1 hour'",
+          "rawSql": "SELECT ROUND(COUNT(*) FILTER (WHERE converted = TRUE)::NUMERIC / NULLIF(COUNT(*), 0), 4) AS value\nFROM session_summary\nWHERE start_time >= NOW() - INTERVAL '3 hours'",
           "refId": "A"
         }
       ],
-      "title": "Today's Conversion Rate",
+      "title": "Conversion Rate (Rolling 3h)",
       "type": "stat"
     },
     {
@@ -220,11 +220,11 @@
           "editorMode": "code",
           "format": "table",
           "rawQuery": true,
-          "rawSql": "SELECT ROUND(100.0 * SUM(CASE WHEN event_type='abandonment' THEN count ELSE 0 END) / NULLIF(SUM(CASE WHEN event_type='purchase' THEN count ELSE 0 END),0), 2) as value\nFROM metrics_5min\nWHERE window_start >= NOW() - INTERVAL '1 hour'",
+          "rawSql": "SELECT ROUND(\n  COUNT(*) FILTER (WHERE converted = FALSE AND add_to_cart_count > 0)::NUMERIC\n  / NULLIF(COUNT(*) FILTER (WHERE add_to_cart_count > 0), 0)\n, 4) AS value\nFROM session_summary\nWHERE start_time >= NOW() - INTERVAL '3 hours'",
           "refId": "A"
         }
       ],
-      "title": "Cart Abandonment Rate",
+      "title": "Cart Abandonment Rate (Rolling 3h)",
       "type": "stat"
     },
     {
@@ -242,15 +242,20 @@
             "mode": "absolute",
             "steps": [
               {
-                "color": "green",
+                "color": "red",
                 "value": null
               },
               {
-                "color": "red",
-                "value": 1
+                "color": "orange",
+                "value": 0.5
+              },
+              {
+                "color": "green",
+                "value": 0.9
               }
             ]
-          }
+          },
+          "unit": "percentunit"
         },
         "overrides": []
       },
@@ -263,7 +268,7 @@
       "id": 4,
       "options": {
         "colorMode": "value",
-        "graphMode": "none",
+        "graphMode": "area",
         "justifyMode": "auto",
         "orientation": "auto",
         "reduceOptions": {
@@ -285,11 +290,11 @@
           "editorMode": "code",
           "format": "table",
           "rawQuery": true,
-          "rawSql": "SELECT COALESCE(SUM(count), 0) AS dlq_count \nFROM metrics_1min \nWHERE event_type = 'dlq' \nAND $__timeFilter(window_start);",
+          "rawSql": "SELECT ROUND(COUNT(*) FILTER (WHERE passed)::NUMERIC / NULLIF(COUNT(*), 0), 4) AS value\nFROM data_quality_checks\nWHERE check_timestamp >= NOW() - INTERVAL '24 hours';",
           "refId": "A"
         }
       ],
-      "title": "DLQ Events (Last Hour)",
+      "title": "Data Quality Pass Rate (24h)",
       "type": "stat"
     },
     {
@@ -638,6 +643,77 @@
         }
       ],
       "title": "Last 20 Sessions",
+      "type": "table"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "description": "Requires the 'obs' Docker Compose profile to be running. Shows 1 (up) or 0 (down) for each scraped target — includes the Spark master/worker Prometheus metrics wired up via config/spark/metrics.properties, which were previously commented out and unconfigured.",
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "thresholds"
+          },
+          "custom": {
+            "align": "auto",
+            "cellOptions": {
+              "type": "auto"
+            },
+            "inspect": false
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "red",
+                "value": null
+              },
+              {
+                "color": "green",
+                "value": 1
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 24,
+        "x": 0,
+        "y": 22
+      },
+      "id": 9,
+      "options": {
+        "cellHeight": "sm",
+        "footer": {
+          "countRows": false,
+          "fields": "",
+          "reducer": [
+            "sum"
+          ],
+          "show": false
+        },
+        "showHeader": true
+      },
+      "pluginVersion": "10.0.0",
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "editorMode": "code",
+          "expr": "up{job=~\"spark-master|spark-worker|spark-applications|kafka-jmx|kafka-exporter|postgres|prometheus|minio\"}",
+          "format": "table",
+          "instant": true,
+          "refId": "A"
+        }
+      ],
+      "title": "Observability Stack Target Health (obs profile)",
       "type": "table"
     }
   ],

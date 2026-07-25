@@ -220,6 +220,7 @@ services:
       SPARK_MASTER_PORT: 7077
     volumes:
       - ./src/spark_jobs:/opt/spark-jobs
+      - ./config/spark/metrics.properties:/opt/spark/conf/metrics.properties:ro
       - spark-logs:/opt/spark/logs
       - spark-checkpoints:/tmp/checkpoints
     networks:
@@ -247,6 +248,7 @@ services:
       SPARK_WORKER_WEBUI_PORT: 8081
     volumes:
       - ./src/spark_jobs:/opt/spark-jobs
+      - ./config/spark/metrics.properties:/opt/spark/conf/metrics.properties:ro
       - spark-logs:/opt/spark/logs
       - spark-checkpoints:/tmp/checkpoints
     networks:
@@ -274,6 +276,7 @@ services:
       SPARK_WORKER_WEBUI_PORT: 8081
     volumes:
       - ./src/spark_jobs:/opt/spark-jobs
+      - ./config/spark/metrics.properties:/opt/spark/conf/metrics.properties:ro
       - spark-logs:/opt/spark/logs
       - spark-checkpoints:/tmp/checkpoints
     networks:
@@ -692,6 +695,30 @@ services:
       - streammart-network
     mem_limit: 512m
     memswap_limit: 512m
+
+  # ==========================================================================
+  # KAFKA CONSUMER LAG (kafka-exporter)
+  # Distinct from kafka-jmx-exporter below: JMX exposes broker-side metrics
+  # (throughput, request rates, log sizes) but not consumer-group lag.
+  # kafka-exporter queries the broker's consumer-group offset API directly,
+  # independent of whether individual consumers expose JMX themselves (ours
+  # don't — they're PySpark Structured Streaming jobs). Lag is the single
+  # most important streaming health metric and was previously not collected
+  # anywhere in this stack.
+  # ==========================================================================
+  kafka-exporter:
+    image: danielqsj/kafka-exporter:latest
+    container_name: streammart-kafka-exporter
+    profiles: ["obs"]
+    ports:
+      - "9308:9308"
+    command:
+      - "--kafka.server=kafka:19092"
+    depends_on:
+      kafka:
+        condition: service_healthy
+    networks:
+      - streammart-network
 
   # ==========================================================================
   # JMX EXPORTER FOR KAFKA METRICS
