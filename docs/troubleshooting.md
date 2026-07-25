@@ -251,8 +251,10 @@ psycopg2.OperationalError: could not connect to server
 
 **Symptom:**
 ```
-relation "events_raw" does not exist
+relation "metrics_1min" does not exist
 ```
+
+> Note: if the error is specifically `relation "events_raw" does not exist`, that's not a bug — this table is intentionally never created. Raw per-event data lives in MinIO as Parquet (see `src/spark_jobs/raw_event_writer.py`), not in Postgres. Any code still referencing `events_raw` is the actual bug; see `CLAUDE.md`.
 
 **Solution:**
 
@@ -522,8 +524,8 @@ Exception in thread...
 
 3. Optimize PostgreSQL queries:
    ```sql
-   -- Add indexes
-   CREATE INDEX idx_events_timestamp ON events_raw(timestamp);
+   -- Add indexes on whichever columns your slow queries filter/sort by, e.g.:
+   CREATE INDEX idx_session_summary_start_time ON session_summary(start_time DESC);
    ```
 
 ---
@@ -534,7 +536,7 @@ Exception in thread...
 
 **Symptom:**
 - Dashboard shows 0 events
-- `events_raw` table empty
+- `metrics_1min` table empty and MinIO's `raw-events` bucket has no new objects
 
 **Diagnosis:**
 
@@ -558,25 +560,19 @@ Exception in thread...
 
 ---
 
-### Issue: "Duplicate events"
+### Issue: "Duplicate rows in an aggregated table"
 
 **Symptom:**
-- Same `event_id` appears multiple times in `events_raw`
+- Same `(window_start, event_type)` in `metrics_1min`/`metrics_5min`, same `session_id` in `session_summary`, or same `(product_id, date)` in `product_performance` appears more than once
 
-**Cause:**
-- Spark reprocessed data without idempotent writes
+**This shouldn't happen by design:** every Spark job in this pipeline writes via psycopg2 `executemany` + `ON CONFLICT (...) DO UPDATE`, keyed on that table's real unique constraint (see the `write_*` function in the relevant `src/spark_jobs/*.py` file, and the matching `UNIQUE`/`PRIMARY KEY` in `sql/init_postgres.sql`). If you see true duplicates:
 
-**Solution:**
-
-1. Add unique constraint:
+1. Confirm the table's unique constraint actually exists:
    ```sql
-   ALTER TABLE events_raw ADD CONSTRAINT events_raw_event_id_unique UNIQUE (event_id);
+   \d session_summary   -- look for the UNIQUE index / PRIMARY KEY
    ```
-
-2. Use UPSERT in Spark jobs:
-   ```python
-   # ON CONFLICT DO NOTHING
-   ```
+2. Check the relevant Spark job's logs for the write function raising and being silently swallowed somewhere upstream of the `ON CONFLICT` — this pipeline's convention (see `CLAUDE.md` coding standards) is that write failures must propagate, never be caught-and-ignored, so a duplicate is a sign that convention was violated somewhere.
+3. Raw, non-deduplicated Kafka messages are expected — at-least-once delivery is a known, accepted limitation (see `README.md` Limitations). The upsert is what makes the *aggregated* Postgres tables idempotent; it does not deduplicate the underlying event stream itself.
 
 ---
 

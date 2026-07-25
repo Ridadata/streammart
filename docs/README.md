@@ -1,12 +1,11 @@
-# StreamMart Docs (Clean Version)
-
-This project now keeps documentation inside this folder only.
+# StreamMart Docs
 
 ## Read First
 
-1. [docs/README.md](README.md): quick start and operational defaults
-2. [docs/troubleshooting.md](troubleshooting.md): common failures and fixes
-3. [docs/design_decisions.md](design_decisions.md): architecture and tradeoffs
+1. [../README.md](../README.md): architecture, quick start, and design decisions
+2. [../CLAUDE.md](../CLAUDE.md): current implementation status, table-ownership matrix, and roadmap
+3. [troubleshooting.md](troubleshooting.md): common failures and fixes
+4. [design_decisions.md](design_decisions.md): technology alternatives considered and why
 
 ## Quick Start (Low Resource Mode)
 
@@ -19,43 +18,49 @@ docker compose up -d --build
 Optional profiles:
 
 ```bash
-docker compose --profile obs up -d --force-recreate  # Grafana/Prometheus
-docker compose --profile orchestration up -d # Airflow
+docker compose --profile obs up -d --force-recreate  # Grafana/Prometheus/Loki
+docker compose --profile orchestration up -d          # Airflow
 ```
 
 If Docker reports a missing network ID (for example: `failed to set up container networking: network <id> not found`), run:
 
 ```bash
 # Recreate only observability containers with fresh network bindings
-docker rm -f streammart-prometheus streammart-loki streammart-promtail streammart-grafana streammart-postgres-exporter streammart-kafka-jmx-exporter
+docker rm -f streammart-prometheus streammart-loki streammart-promtail streammart-grafana streammart-postgres-exporter streammart-kafka-jmx-exporter streammart-kafka-exporter
 docker compose --profile obs up -d --force-recreate
 ```
 
-## What Changed For Stability
+## Low-Resource Tuning
 
-- Lower event generation rate (`EVENT_GENERATOR_RATE=8`)
-- Lower Spark/Kafka memory footprint
-- Kafka retention reduced for SSD safety
-- Auto-rollup service fills summary tables every minute
+If running on a machine with limited RAM/CPU:
 
-## Postgres Tables Now Kept Active
+- Lower the event generation rate via `EVENT_GENERATOR_RATE` in `.env`
+- Lower Spark executor/driver memory (`SPARK_DRIVER_MEMORY`, `SPARK_EXECUTOR_MEMORY` in `.env`, and the `mem_limit` values in `docker-compose.yml`)
+- Kafka retention is already reduced (`KAFKA_LOG_RETENTION_HOURS: 24`) for local SSD safety
+- The `postgres-maintenance` service (see `sql/maintenance.sql`) writes lightweight DQ heartbeat and pipeline-monitoring rows every 60 seconds regardless of load, so those tables stay active even at low event rates
 
-- `metrics_1min`
-- `metrics_5min`
-- `session_summary`
-- `product_performance`
-- `daily_revenue`
-- `data_quality_checks`
-- `pipeline_monitoring`
+## Postgres Tables Kept Continuously Active
+
+- `metrics_1min`, `metrics_5min` — Spark, ~30-60s
+- `session_summary` — Spark, ~40-70min latency (append-mode; see `../README.md` Design Decisions)
+- `product_performance` — Spark, ~30s
+- `data_quality_checks`, `pipeline_monitoring` — `postgres-maintenance`, every 60s
+
+`daily_revenue`, `daily_summary`, `product_daily_performance` are populated once daily by Airflow — see `../README.md`.
 
 ## Verify Health
 
 ```bash
 docker compose ps
 docker compose exec -T postgres psql -U streammart_user -d streammart -c "SELECT COUNT(*) FROM metrics_1min;"
-docker compose exec -T postgres psql -U streammart_user -d streammart -c "SELECT COUNT(*) FROM daily_revenue;"
+docker compose exec -T postgres psql -U streammart_user -d streammart -c "SELECT COUNT(*) FROM session_summary;"
 ```
-- [ ] Review Grafana dashboards
+
+### Weekly Checks
+
+- [ ] Review Grafana dashboards for anomalies
+- [ ] Check `docker compose logs` across services for recurring errors
+- [ ] Confirm all four Airflow DAGs have recent successful runs
 
 ### Monthly Checks
 
@@ -78,15 +83,15 @@ docker compose exec -T postgres psql -U streammart_user -d streammart -c "SELECT
 ```
 
 ### ❌ Forgetting to create Kafka topics
-**Symptom:** Spark jobs fail with "topic does not exist"  
-**Fix:** Run Step 3 of [DEPLOYMENT_GUIDE.md](../DEPLOYMENT_GUIDE.md)
+**Symptom:** Spark jobs fail with "topic does not exist"
+**Fix:** `docker compose run --rm kafka-topics-init` (see [troubleshooting.md](troubleshooting.md))
 
 ### ❌ Not initializing PostgreSQL tables
-**Symptom:** No data in database even though Spark is running  
-**Fix:** Run Step 2 of [DEPLOYMENT_GUIDE.md](../DEPLOYMENT_GUIDE.md)
+**Symptom:** No data in database even though Spark is running
+**Fix:** Confirm `sql/init_postgres.sql` ran on first boot — check `docker compose logs postgres` for "database initialization completed"; if the `postgres-data` volume already existed from a prior run, init scripts don't re-run (Postgres only runs `docker-entrypoint-initdb.d` on a fresh, empty data directory)
 
 ### ❌ Over-allocating resources
-**Symptom:** Jobs stuck in WAITING state  
+**Symptom:** Jobs stuck in WAITING state
 **Formula:** Ensure (jobs × memory) < worker capacity
 
 ---
@@ -103,19 +108,20 @@ docker compose exec kafka kafka-topics --alter --topic events.pageview --partiti
 ### Spark
 
 ```python
-# Tune micro-batch interval
-.trigger(processingTime="5 seconds")  # Default: 2 seconds
+# Tune micro-batch interval (see each job's write_to_postgres/write_product_performance
+# function for its current trigger interval)
+.trigger(processingTime="5 seconds")
 
 # Increase parallelism
-spark.conf.set("spark.sql.shuffle.partitions", "20")  # Default: 200
+spark.conf.set("spark.sql.shuffle.partitions", "20")  # Project default: 3, tuned for local dev
 ```
 
 ### PostgreSQL
 
 ```sql
--- Add indexes on frequently queried columns
-CREATE INDEX idx_metrics_window_end ON metrics_1min(window_end DESC);
-CREATE INDEX idx_events_timestamp ON events_raw(timestamp DESC);
+-- Add indexes on frequently queried columns (adjust to your actual query patterns)
+CREATE INDEX idx_session_summary_start_time ON session_summary(start_time DESC);
+CREATE INDEX idx_product_performance_date ON product_performance(date DESC);
 ```
 
 ---
@@ -128,31 +134,29 @@ CREATE INDEX idx_events_timestamp ON events_raw(timestamp DESC);
 - Include code examples where relevant
 - Keep guides under 500 lines (split if too long)
 - Use proper heading hierarchy (# → ## → ###)
-- Link between documents (relative paths)
+- Link between documents with relative paths, and verify the link target actually exists
 
 ### File Organization
 
 ```
-Root level: User-facing guides
-├── README.md                 # Entry point
-├── DEPLOYMENT_GUIDE.md       # How to deploy
-├── VERIFICATION_GUIDE.md     # How to verify
-├── ARCHITECTURE.md           # System design
-├── PRODUCTION_CONFIG.md      # Production best practices
+Root level:
+├── README.md            # Architecture, quick start, design decisions
+├── CLAUDE.md             # Implementation status, table ownership, roadmap
+├── LICENSE
 
-docs/ folder: Supporting docs
-├── README.md                 # This file (doc hub)
-├── design_decisions.md       # Why we chose X over Y
-└── troubleshooting.md        # Error diagnosis
+docs/ folder:
+├── README.md              # This file — docs hub
+├── design_decisions.md    # Technology alternatives considered and why
+└── troubleshooting.md     # Error diagnosis
 ```
 
 ### Updates Needed
 
 If you modify the project:
-- [ ] Update README.md if architecture changes
-- [ ] Update DEPLOYMENT_GUIDE.md if steps change
-- [ ] Update VERIFICATION_GUIDE.md if new checks needed
-- [ ] Update ARCHITECTURE.md if new services added
+- [ ] Update `README.md` if architecture or table ownership changes
+- [ ] Update `CLAUDE.md`'s status table and roadmap checklist
+- [ ] Update `docs/troubleshooting.md` if a new failure mode is discovered
+- [ ] Verify every relative link in the doc you're editing still resolves — this file has previously drifted to link at files that were never created
 
 ---
 
@@ -185,6 +189,4 @@ If you modify the project:
 
 ---
 
-**Last Updated:** 2026-01-06  
-**Documentation Version:** 1.0  
-**Project Status:** Production-ready demo
+**Current implementation status, technical debt, and roadmap:** see [../CLAUDE.md](../CLAUDE.md) — kept up to date as the project evolves, rather than duplicating a status snapshot here that would just go stale again.
