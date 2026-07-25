@@ -500,9 +500,9 @@ services:
     mem_limit: 256m
     memswap_limit: 256m
 
-  postgres-rollup:
+  postgres-maintenance:
     image: postgres:15-alpine
-    container_name: streammart-postgres-rollup
+    container_name: streammart-postgres-maintenance
     depends_on:
       postgres:
         condition: service_healthy
@@ -513,14 +513,15 @@ services:
     environment:
       PGPASSWORD: ${POSTGRES_PASSWORD}
     volumes:
-      - ./sql/rollups.sql:/opt/sql/rollups.sql:ro
+      - ./sql/maintenance.sql:/opt/sql/maintenance.sql:ro
     command: >
       /bin/sh -c "
       until pg_isready -h postgres -U ${POSTGRES_USER} -d ${POSTGRES_DB}; do
         echo 'Waiting for postgres...'; sleep 2;
       done;
       while true; do
-        psql -h postgres -U ${POSTGRES_USER} -d ${POSTGRES_DB} -f /opt/sql/rollups.sql || true;
+        psql -h postgres -U ${POSTGRES_USER} -d ${POSTGRES_DB} -f /opt/sql/maintenance.sql
+        || echo 'maintenance.sql run failed - will retry next cycle';
         sleep 60;
       done
       "
@@ -584,6 +585,15 @@ services:
       AIRFLOW__CORE__LOAD_EXAMPLES: 'false'
       AIRFLOW__WEBSERVER__EXPOSE_CONFIG: 'true'
       AIRFLOW_UID: ${AIRFLOW_UID}
+      # pipeline_health_check_dag.py needs boto3 to inspect MinIO partitions.
+      # Stock apache/airflow images don't include it; this is the documented
+      # quick way to add a package without a custom image build (Airflow docs
+      # note it's meant for dev/test, which matches this project's scope).
+      _PIP_ADDITIONAL_REQUIREMENTS: 'boto3==1.34.18'
+      MINIO_ENDPOINT: ${MINIO_ENDPOINT}
+      MINIO_ACCESS_KEY: ${MINIO_ACCESS_KEY}
+      MINIO_SECRET_KEY: ${MINIO_SECRET_KEY}
+      MINIO_BUCKET: ${MINIO_BUCKET}
     volumes:
       - ./src/airflow_dags:/opt/airflow/dags
       - ./src/utils:/opt/airflow/utils
@@ -605,6 +615,11 @@ services:
       AIRFLOW__CORE__LOAD_EXAMPLES: 'false'
       AIRFLOW__CORE__DAGS_ARE_PAUSED_AT_CREATION: 'true'
       AIRFLOW_UID: ${AIRFLOW_UID}
+      _PIP_ADDITIONAL_REQUIREMENTS: 'boto3==1.34.18'
+      MINIO_ENDPOINT: ${MINIO_ENDPOINT}
+      MINIO_ACCESS_KEY: ${MINIO_ACCESS_KEY}
+      MINIO_SECRET_KEY: ${MINIO_SECRET_KEY}
+      MINIO_BUCKET: ${MINIO_BUCKET}
     volumes:
       - ./src/airflow_dags:/opt/airflow/dags
       - ./src/utils:/opt/airflow/utils

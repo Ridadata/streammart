@@ -1,6 +1,6 @@
 """
 Spark Structured Streaming Job #2: Window Aggregator
-Computes 1-minute windowed aggregations and writes to PostgreSQL
+Computes 1-minute AND 5-minute windowed aggregations and writes both to PostgreSQL
 
 WHY THIS EXISTS:
 - Real-time metrics for dashboards (event counts, unique users, etc.)
@@ -16,6 +16,20 @@ REAL-WORLD USAGE:
 - Twitter uses windowed aggregations for trending topics
 - Uber uses them for surge pricing calculations
 - Netflix for real-time viewership metrics
+
+WHY THIS JOB OWNS BOTH metrics_1min AND metrics_5min:
+An earlier version derived metrics_5min from metrics_1min in a periodic SQL
+rollup (SUM(unique_sessions) across five 1-minute rows). That is mathematically
+wrong: unique_sessions/unique_users are approximate DISTINCT counts
+(approx_count_distinct), and summing pre-aggregated distinct counts is not the
+same as counting distinct values over the union — a session active across
+three consecutive 1-minute windows would be counted three times. There is no
+way to correctly recover a 5-minute distinct count from 1-minute pre-aggregated
+distinct counts after the fact; the only correct fix is to compute the
+5-minute distinct count directly from the raw event stream, same as the
+1-minute one. That's what this job now does: two independent windowed
+aggregations off the same parsed event stream, each with its own watermark,
+checkpoint, and upsert target.
 """
 
 from pyspark.sql import SparkSession
@@ -67,7 +81,7 @@ def create_spark_session():
 def read_all_kafka_topics(spark):
     """
     Read from all event topics into a single stream
-    
+
     This allows unified windowing across all event types
     """
     return spark.readStream \
@@ -83,7 +97,7 @@ def read_all_kafka_topics(spark):
 def parse_events(df):
     """
     Extract key fields from Kafka messages
-    
+
     We only need event_id, session_id, user_id, timestamp, and topic
     for aggregations - don't need full event payload
     """
@@ -92,7 +106,7 @@ def parse_events(df):
         "event_type",
         regexp_extract(col("topic"), "events\\.(.*)", 1)
     )
-    
+
     # Parse minimal fields from JSON
     minimal_schema = StructType([
         StructField("event_id", StringType()),
@@ -100,7 +114,7 @@ def parse_events(df):
         StructField("user_id", StringType()),
         StructField("timestamp", LongType())
     ])
-    
+
     return df_with_type.select(
         from_json(col("value").cast("string"), minimal_schema).alias("data"),
         col("event_type"),
@@ -114,29 +128,25 @@ def parse_events(df):
     ).filter(col("event_time").isNotNull())
 
 
-def compute_1min_aggregations(df):
+def compute_windowed_aggregations(df, window_duration, watermark_delay):
     """
-    Compute 1-minute windowed aggregations
-    
+    Compute windowed aggregations for an arbitrary tumbling window size.
+
     Metrics:
     - Event count per type
-    - Unique sessions per type
+    - Unique sessions per type (approx_count_distinct — see module docstring
+      for why this must never be summed across windows after the fact)
     - Unique users per type
-    
-    Watermarking:
-    - Allows 2 minutes of late data
-    - Events arriving > 2 min late are dropped
-    - Prevents unbounded state growth
-    
+
     Why watermarking: In production, events can arrive out-of-order due to:
     - Network delays
     - Client-side buffering
     - Kafka partition rebalancing
     """
     return df \
-        .withWatermark("event_time", "2 minutes") \
+        .withWatermark("event_time", watermark_delay) \
         .groupBy(
-            window(col("event_time"), "1 minute"),
+            window(col("event_time"), window_duration),
             col("event_type")
         ) \
         .agg(
@@ -156,35 +166,35 @@ def compute_1min_aggregations(df):
         )
 
 
-def write_to_postgres(df, table_name):
+def write_to_postgres(df, table_name, checkpoint_suffix, trigger_interval):
     """
-    Write aggregations to PostgreSQL with upsert logic
-    
+    Write windowed aggregations to PostgreSQL with upsert logic
+
     CRITICAL: Must be idempotent!
     - Uses ON CONFLICT to handle duplicates
     - If same window arrives twice, we UPDATE instead of failing
-    
+
     Why this matters:
     - Spark may reprocess data after failures
     - Exactly-once semantics requires idempotent writes
     """
-    
-    postgres_url = f"jdbc:postgresql://{POSTGRES_HOST}:{POSTGRES_PORT}/{POSTGRES_DB}"
-    
+
+    checkpoint_location = f"{CHECKPOINT_LOCATION}/{checkpoint_suffix}"
+
     def write_batch_to_postgres(batch_df, batch_id):
         """
         Custom writer with UPSERT logic using psycopg2.
 
         Uses ON CONFLICT (window_start, event_type) DO UPDATE so that
         Spark restarts and reprocessed windows never cause UniqueViolation.
-        .collect() is safe here: max 5 rows per batch (one per event type).
+        .collect() is safe here: at most 5 rows per batch (one per event type).
         """
         if batch_df.rdd.isEmpty():
             return
 
         import psycopg2
         rows = batch_df.collect()
-        print(f"Writing batch {batch_id} to PostgreSQL ({len(rows)} rows)")
+        print(f"[{table_name}] Writing batch {batch_id} to PostgreSQL ({len(rows)} rows)")
 
         conn = psycopg2.connect(
             host=POSTGRES_HOST, port=int(POSTGRES_PORT),
@@ -193,8 +203,8 @@ def write_to_postgres(df, table_name):
         try:
             with conn.cursor() as cur:
                 cur.executemany(
-                    """
-                    INSERT INTO metrics_1min
+                    f"""
+                    INSERT INTO {table_name}
                         (window_start, window_end, event_type, count,
                          unique_sessions, unique_users, created_at, updated_at)
                     VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
@@ -211,74 +221,86 @@ def write_to_postgres(df, table_name):
                     ]
                 )
             conn.commit()
-            print(f"✓ Batch {batch_id} written successfully")
+            print(f"✓ [{table_name}] Batch {batch_id} written successfully")
         finally:
             conn.close()
-    
+
     # Use foreachBatch for custom write logic
     return df.writeStream \
         .foreachBatch(write_batch_to_postgres) \
-        .option("checkpointLocation", CHECKPOINT_LOCATION) \
+        .option("checkpointLocation", checkpoint_location) \
         .outputMode("update") \
-        .trigger(processingTime="30 seconds") \
+        .trigger(processingTime=trigger_interval) \
         .start()
 
 
 def main():
     """
     Main execution
-    
+
     This job:
     1. Reads all events from Kafka
-    2. Computes 1-min windowed aggregations
-    3. Writes to PostgreSQL with upserts
-    4. Processes micro-batches every 30 seconds
+    2. Computes 1-min windowed aggregations -> metrics_1min
+    3. Computes 5-min windowed aggregations -> metrics_5min (independently,
+       not derived from metrics_1min — see module docstring)
+    4. Writes both to PostgreSQL with upserts, each on its own trigger interval
     """
     print("=" * 80)
     print("StreamMart Window Aggregator - Starting...")
     print("=" * 80)
-    
+
     spark = create_spark_session()
     spark.sparkContext.setLogLevel("WARN")
-    
+
     # Read from Kafka
     print("Reading from Kafka topics...")
     kafka_df = read_all_kafka_topics(spark)
-    
+
     # Parse events
     print("Parsing events...")
     events_df = parse_events(kafka_df)
-    
+
     # Compute 1-minute aggregations
     print("Computing 1-minute windowed aggregations...")
-    aggregations_df = compute_1min_aggregations(events_df)
-    
-    # Write to PostgreSQL
+    agg_1min_df = compute_windowed_aggregations(events_df, "1 minute", "2 minutes")
+
+    # Compute 5-minute aggregations (independent aggregation, not a rollup of 1-min)
+    print("Computing 5-minute windowed aggregations...")
+    agg_5min_df = compute_windowed_aggregations(events_df, "5 minutes", "2 minutes")
+
+    # Write both to PostgreSQL
     print(f"Writing to PostgreSQL: {POSTGRES_HOST}:{POSTGRES_PORT}/{POSTGRES_DB}")
-    query = write_to_postgres(aggregations_df, "metrics_1min")
-    
+    query_1min = write_to_postgres(agg_1min_df, "metrics_1min", "1min", "30 seconds")
+    query_5min = write_to_postgres(agg_5min_df, "metrics_5min", "5min", "60 seconds")
+
     print("\n" + "=" * 80)
-    print("Window Aggregator running. Metrics -> PostgreSQL @ 30sec intervals")
+    print("Window Aggregator running.")
+    print("  metrics_1min -> PostgreSQL @ 30sec intervals")
+    print("  metrics_5min -> PostgreSQL @ 60sec intervals")
     print("Press Ctrl+C to stop...")
     print("=" * 80 + "\n")
-    
+
+    queries = [query_1min, query_5min]
+
     # Monitor query progress
     try:
-        while query.isActive:
+        while any(q.isActive for q in queries):
             import time
             time.sleep(10)
-            
-            # Print progress
-            progress = query.lastProgress
-            if progress:
-                print(f"[Progress] Processed {progress['numInputRows']} rows, "
-                      f"Batch: {progress['batchId']}")
-        
-        query.awaitTermination()
-        
+
+            for q in queries:
+                progress = q.lastProgress
+                if progress:
+                    print(f"[Progress:{q.name or q.id}] Processed {progress['numInputRows']} rows, "
+                          f"Batch: {progress['batchId']}")
+
+        for q in queries:
+            q.awaitTermination()
+
     except KeyboardInterrupt:
         print("\nStopping aggregator...")
-        query.stop()
+        for q in queries:
+            q.stop()
         spark.stop()
         print("Window Aggregator stopped")
 

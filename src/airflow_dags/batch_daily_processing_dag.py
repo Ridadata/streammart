@@ -266,7 +266,18 @@ dag = DAG(
     default_args=default_args,
     description='Batch daily aggregations and business metrics computation',
     schedule_interval='0 2 * * *',  # Run at 2 AM daily (after overnight streaming)
-    catchup=True,  # Allow backfilling
+    # catchup=False: with start_date fixed at 2026-03-01, catchup=True would
+    # trigger one DAG run per day between start_date and whenever this DAG is
+    # first unpaused — potentially well over a hundred backfill runs firing at
+    # once against a small local Postgres instance. Every task here is
+    # idempotent (UPSERT on a date-keyed primary key), so an intentional
+    # historical backfill is still fully supported — just trigger it
+    # explicitly and bounded: `airflow dags backfill streammart_daily_batch_processing
+    # -s 2026-03-01 -e 2026-03-15`. That's the standard, controlled way to
+    # backfill in Airflow; relying on catchup=True to do it implicitly on
+    # unpause is what caused the uncontrolled-backfill risk this comment
+    # replaces.
+    catchup=False,
     tags=['batch', 'aggregation', 'business-metrics'],
 )
 

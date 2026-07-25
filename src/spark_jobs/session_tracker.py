@@ -116,9 +116,9 @@ def parse_events(df):
 def sessionize_events(df):
     """
     Compute session-level aggregations
-    
+
     Session timeout: 30 minutes of inactivity = session ends
-    
+
     Metrics per session:
     - Start/end time
     - Duration
@@ -126,12 +126,24 @@ def sessionize_events(df):
     - Converted (true if purchase exists)
     - Total revenue
     - Device type
-    
+
     This is a stateful aggregation - Spark maintains session state
-    across micro-batches using state store
+    across micro-batches using state store.
+
+    Watermark = 40 minutes: session_window requires "append" output mode
+    (Spark does not support "update" mode for session-window aggregations —
+    see write_to_postgres() below), which means a session is only emitted
+    once the watermark has passed its end time. The watermark must exceed
+    the 30-minute inactivity gap (otherwise every session would be dropped
+    as "too late" the instant it closes) with enough buffer for realistic
+    network/producer delay. 40 minutes gives a 10-minute buffer over the
+    30-minute gap, bounding end-to-end latency to roughly 40-70 minutes
+    from a session's last event to its row appearing in `session_summary`.
+    A much larger watermark (e.g. the original 1 hour) directly extends
+    that latency 1:1, so keep this as tight as the data actually requires.
     """
     return df \
-        .withWatermark("event_time", "1 hour") \
+        .withWatermark("event_time", "40 minutes") \
         .groupBy(
             session_window(col("event_time"), "30 minutes"),
             col("session_id")
@@ -167,22 +179,25 @@ def sessionize_events(df):
 
 def write_to_postgres(df, table_name):
     """
-    Write session summaries to PostgreSQL with upsert
-    
-    ON CONFLICT (session_id) DO UPDATE
-    - Updates existing sessions as new events arrive
-    - Handles late-arriving data
+    Write finalized session summaries to PostgreSQL with upsert.
+
+    Output mode is "append" (see sessionize_events() docstring for why "update"
+    is not an option for session-window aggregations — Spark explicitly does
+    not support it: https://spark.apache.org/docs/3.5.8/structured-streaming-programming-guide.html#types-of-time-windows).
+    In append mode, each session_id is emitted exactly once, after the
+    watermark confirms it's closed. ON CONFLICT DO UPDATE is kept anyway as a
+    safety net: if the job restarts after writing to Postgres but before the
+    micro-batch offset is checkpointed, the same finalized session can be
+    replayed once. Under normal operation this is effectively an insert-only
+    table.
     """
-    
-    postgres_url = f"jdbc:postgresql://{POSTGRES_HOST}:{POSTGRES_PORT}/{POSTGRES_DB}"
-    
+
     def upsert_batch(batch_df, batch_id):
         """Write batch with upsert logic using psycopg2 ON CONFLICT DO UPDATE.
 
-        session_summary has a UNIQUE index on session_id (see init_postgres.sql),
-        so upsert is required on every Spark restart / reprocessing cycle.
-        .collect() is safe here: batch size is bounded by active sessions in the
-        current 1-minute trigger window.
+        session_summary has a UNIQUE index on session_id (see init_postgres.sql).
+        .collect() is safe here: batch size is bounded by the number of
+        sessions that closed within this 1-minute trigger window.
         """
         if batch_df.rdd.isEmpty():
             return
@@ -230,7 +245,7 @@ def write_to_postgres(df, table_name):
     return df.writeStream \
         .foreachBatch(upsert_batch) \
         .option("checkpointLocation", CHECKPOINT_LOCATION) \
-        .outputMode("update") \
+        .outputMode("append") \
         .trigger(processingTime="1 minute") \
         .start()
 
@@ -243,7 +258,8 @@ def main():
     1. Read all events from Kafka
     2. Group by session_id with 30-min timeout
     3. Compute per-session metrics
-    4. Write to PostgreSQL (upsert on session_id)
+    4. Write finalized sessions to PostgreSQL (append mode; upsert on session_id
+       as a restart safety net — see write_to_postgres() docstring)
     """
     print("=" * 80)
     print("StreamMart Session Tracker - Starting...")
@@ -265,8 +281,10 @@ def main():
     query = write_to_postgres(sessions_df, "session_summary")
     
     print("\n" + "=" * 80)
-    print("Session Tracker running. Sessions -> PostgreSQL @ 1min intervals")
-    print("Session timeout: 30 minutes of inactivity")
+    print("Session Tracker running. Checking for newly-closed sessions every 1min.")
+    print("Session timeout: 30 minutes of inactivity; watermark: 40 minutes.")
+    print("A session appears in PostgreSQL ~40-70 minutes after its last event")
+    print("(append-mode semantics — see sessionize_events() docstring).")
     print("Press Ctrl+C to stop...")
     print("=" * 80 + "\n")
     

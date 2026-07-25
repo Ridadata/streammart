@@ -2,10 +2,10 @@
 -- StreamMart PostgreSQL Database Initialization
 -- ============================================================================
 
--- Note: This script runs against the 'streammart' database (set via POSTGRES_DB)
--- The 'airflow' database must be created separately.
--- Run this command after PostgreSQL starts:
--- docker compose exec postgres psql -U streammart_user -d postgres -c "CREATE DATABASE airflow;"
+-- Note: This script runs against the 'streammart' database (set via POSTGRES_DB).
+-- The 'airflow' database is created automatically by 00_create_airflow_db.sql,
+-- which runs first (docker-entrypoint-initdb.d executes scripts in alphabetical
+-- order, and that file is prefixed 00_ specifically to guarantee this).
 
 -- Connect to streammart database (this is default based on POSTGRES_DB env var)
 -- \c streammart;
@@ -15,11 +15,12 @@ CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
 CREATE EXTENSION IF NOT EXISTS "pg_stat_statements";
 
 -- ============================================================================
--- RAW EVENTS TABLE
--- Stores all incoming events with 30-day retention
+-- NOTE ON RAW EVENTS
+-- Raw, unaggregated events are NOT stored in Postgres. They live in MinIO as
+-- partitioned Parquet (s3a://raw-events/events/year=/month=/day=/event_type=),
+-- written by src/spark_jobs/raw_event_writer.py. Postgres holds only
+-- aggregated/derived tables. There is deliberately no `events_raw` table here.
 -- ============================================================================
-
-
 
 -- ============================================================================
 -- METRICS TABLES - 1 MINUTE WINDOWS
