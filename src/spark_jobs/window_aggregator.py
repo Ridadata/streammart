@@ -215,7 +215,19 @@ def write_to_postgres(df, table_name, checkpoint_suffix, trigger_interval):
                         updated_at       = EXCLUDED.updated_at
                     """,
                     [
-                        (r.window_start, r.window_end, r.event_type, r.count,
+                        # r["count"], NOT r.count: pyspark.sql.Row subclasses
+                        # tuple, which already has a real .count() method
+                        # (counts occurrences of a value). Attribute access
+                        # for a Row silently prefers that inherited method
+                        # over Row's field-lookup fallback whenever the field
+                        # name collides with a tuple method name (count,
+                        # index) — r.count returns a bound method object, not
+                        # the field value, with no error until psycopg2 tries
+                        # to adapt it. Confirmed against a live run: this
+                        # crashed the query on the very first batch with real
+                        # data. Bracket access always goes through Row's
+                        # __getitem__, which has no such collision.
+                        (r.window_start, r.window_end, r.event_type, r["count"],
                          r.unique_sessions, r.unique_users, r.created_at, r.updated_at)
                         for r in rows
                     ]

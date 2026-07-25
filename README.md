@@ -132,9 +132,16 @@ streammart/
 
 ## Getting Started
 
+> **New to this project?** [RUNBOOK.md](RUNBOOK.md) is a command-by-command first-run guide with
+> real, verified output for every step — use it instead of improvising from the summary below.
+
 ### Prerequisites
 
-- Docker Desktop (≥ 4.x) with at least **12 GB RAM** allocated
+- Docker Desktop (≥ 4.x). RAM: the core profile (Kafka, Postgres, MinIO, Spark cluster, all 4
+  streaming jobs, event generator, plus Kafka UI/pgAdmin/Schema Registry) was measured at ~6.4 GB
+  real usage on Docker Desktop; core + `obs` measured ~7.9 GB. 12 GB is a comfortable target if
+  you want core + `obs` + `orchestration` running simultaneously — see RUNBOOK.md §11 for the
+  measured numbers and a reduced-footprint startup command if you're constrained.
 - Docker Compose v2
 - Git
 

@@ -3,7 +3,7 @@ Spark Structured Streaming Job #4: Revenue Aggregator
 Computes real-time, per-product revenue metrics from purchase events
 
 WHY THIS EXISTS:
-- Business-critical metrics: revenue, order count, product-level sales
+- Business-critical metrics: revenue and units sold, per product per day
 - Real-time visibility into sales performance
 - Enables operational decisions (inventory, promotions, staffing)
 
@@ -31,7 +31,7 @@ second writer to any table.
 from pyspark.sql import SparkSession
 from pyspark.sql.functions import (
     col, from_json, explode, sum, window,
-    to_date, current_timestamp, round, lit, countDistinct
+    to_date, current_timestamp, round, lit
 )
 from pyspark.sql.types import (
     StructType, StructField, StringType, LongType,
@@ -169,8 +169,7 @@ def compute_product_performance(df):
         ) \
         .agg(
             sum("quantity").alias("units_sold"),
-            sum("item_revenue").alias("revenue"),
-            countDistinct("order_id").alias("order_count")
+            sum("item_revenue").alias("revenue")
         ) \
         .select(
             col("product_id"),
