@@ -25,7 +25,6 @@ from pyspark.sql.functions import (
     session_window, unix_timestamp, round, current_timestamp
 )
 from pyspark.sql.types import StructType, StructField, StringType, LongType, DoubleType
-from pyspark.sql import Window
 import os
 
 # Configuration

@@ -5,12 +5,8 @@ Tests event creation logic and data models
 
 import pytest
 from datetime import datetime
-import sys
-import os
 
-# Add src to path
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'src', 'simulator'))
-
+# src/simulator is added to sys.path by tests/conftest.py
 from event_models import (
     PageViewEvent, ProductClickEvent, AddToCartEvent,
     PurchaseEvent, AbandonmentEvent,

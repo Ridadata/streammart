@@ -1,0 +1,26 @@
+# ============================================================================
+# StreamMart Test/Dev Dependencies
+# ============================================================================
+# Installed on top of requirements.txt for running the test suite (CI, or
+# local development on Python 3.10/3.11 — see the note in requirements.txt:
+# apache-airflow 2.8.0 does not support Python 3.12+, matching the
+# apache/airflow:2.8.0-python3.11 image pinned in docker-compose.yml).
+#
+#   pip install -r requirements.txt -r requirements-dev.txt
+#   python -m pytest tests/unit -v          # no Docker required
+#   docker compose up -d && python -m pytest tests/integration -v
+# ============================================================================
+
+-r requirements.txt
+
+# Spark unit tests (tests/unit/test_*.py) — pinned to match the version
+# actually running in docker-compose.yml, not just "any recent pyspark"
+pyspark==3.5.0
+
+# Airflow DAG integrity tests (tests/unit/test_dag_integrity.py) — pinned to
+# match apache/airflow:2.8.0-python3.11 in docker-compose.yml
+apache-airflow==2.8.0
+apache-airflow-providers-postgres==5.9.0
+
+# pipeline_health_check_dag.py's MinIO partition check
+boto3==1.34.18

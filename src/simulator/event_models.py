@@ -3,11 +3,9 @@ StreamMart Event Data Models
 Defines the structure of all e-commerce events
 """
 
-from dataclasses import dataclass, asdict, field
+from dataclasses import dataclass, asdict
 from typing import Optional, List
-from datetime import datetime
 from enum import Enum
-import uuid
 
 
 class PageType(Enum):

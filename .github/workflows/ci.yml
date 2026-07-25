@@ -1,0 +1,135 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  lint:
+    name: Lint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install lint tools
+        run: pip install flake8 black
+
+      - name: flake8 (blocking — syntax errors, undefined names, unused imports)
+        run: flake8 --select=E9,F63,F7,F82,F401 src scripts tests
+
+      - name: flake8 (informational — full style report, does not fail the build)
+        run: flake8 --max-line-length=120 src scripts tests || true
+
+      - name: black --check (informational — formatting drift, does not fail the build)
+        run: black --check --diff src scripts tests || true
+
+  unit-tests:
+    name: Unit Tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: |
+          pip install -r requirements.txt -r requirements-dev.txt
+
+      - name: Run unit tests (no Docker required)
+        # requirements-dev.txt pins apache-airflow==2.8.0 + the postgres
+        # provider (matching docker-compose.yml), so
+        # tests/unit/test_dag_integrity.py runs for real here — no separate
+        # "DAG import check" job needed.
+        run: python -m pytest tests/unit -v --cov=src --cov-report=term-missing
+
+  compose-smoke-test:
+    name: Docker Compose Smoke Test
+    runs-on: ubuntu-latest
+    needs: [lint, unit-tests]
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Create .env with CI-only throwaway credentials
+        run: |
+          cat > .env <<'EOF'
+          KAFKA_BROKER=localhost:9092
+          KAFKA_SCHEMA_REGISTRY_URL=http://localhost:8081
+          POSTGRES_HOST=localhost
+          POSTGRES_PORT=5432
+          POSTGRES_DB=streammart
+          POSTGRES_USER=streammart_user
+          POSTGRES_PASSWORD=ci-smoke-test-password
+          MINIO_ENDPOINT=localhost:9000
+          MINIO_ACCESS_KEY=ci-smoke-test-key
+          MINIO_SECRET_KEY=ci-smoke-test-secret
+          MINIO_BUCKET=raw-events
+          AIRFLOW_UID=50000
+          AIRFLOW_HOME=/opt/airflow
+          AIRFLOW__CORE__EXECUTOR=LocalExecutor
+          AIRFLOW__DATABASE__SQL_ALCHEMY_CONN=postgresql+psycopg2://streammart_user:ci-smoke-test-password@postgres:5432/airflow
+          AIRFLOW__CORE__LOAD_EXAMPLES=False
+          AIRFLOW__WEBSERVER__EXPOSE_CONFIG=True
+          AIRFLOW_ADMIN_USER=admin
+          AIRFLOW_ADMIN_PASSWORD=ci-smoke-test-password
+          GRAFANA_ADMIN_USER=admin
+          GRAFANA_ADMIN_PASSWORD=ci-smoke-test-password
+          PGADMIN_DEFAULT_EMAIL=admin@streammart.dev
+          PGADMIN_DEFAULT_PASSWORD=ci-smoke-test-password
+          SPARK_MASTER=spark://spark-master:7077
+          SPARK_DRIVER_MEMORY=1g
+          SPARK_EXECUTOR_MEMORY=1g
+          PROMETHEUS_RETENTION_DAYS=1
+          EVENT_GENERATOR_RATE=20
+          LOG_LEVEL=INFO
+          EOF
+
+      - name: Start a minimal core subset (not the full stack — see comment)
+        # Deliberately a reduced footprint rather than `docker compose up -d`
+        # (which would also start schema-registry, kafka-ui, pgadmin, and all
+        # 4 Spark job containers + both workers): GitHub-hosted runners have
+        # limited CPU/RAM, and this proves the same critical path — events
+        # flowing Kafka -> Spark Structured Streaming -> Postgres upsert —
+        # with a much lighter footprint. spark-window-aggregator is the job
+        # this smoke test exercises because it's the fastest end-to-end
+        # signal (30s trigger, no watermark-bound emission delay like
+        # session_tracker's append-mode sessions).
+        run: |
+          docker compose up -d kafka kafka-topics-init postgres minio minio-init \
+            spark-master spark-worker-1 spark-window-aggregator event-generator
+
+      - name: Wait for events to flow end-to-end into Postgres
+        env:
+          PGPASSWORD: ci-smoke-test-password
+        run: |
+          echo "Waiting up to 5 minutes for metrics_1min to receive rows..."
+          for i in $(seq 1 30); do
+            COUNT=$(docker compose exec -T -e PGPASSWORD postgres psql -U streammart_user -d streammart -tAc \
+              "SELECT COUNT(*) FROM metrics_1min;" 2>/dev/null || echo "0")
+            echo "  attempt $i: metrics_1min row count = $COUNT"
+            if [ "$COUNT" -gt "0" ] 2>/dev/null; then
+              echo "Data is flowing end-to-end. Smoke test passed."
+              exit 0
+            fi
+            sleep 10
+          done
+          echo "No rows appeared in metrics_1min within 5 minutes — smoke test failed."
+          exit 1
+
+      - name: Dump logs on failure
+        if: failure()
+        run: |
+          docker compose logs kafka --tail 100
+          docker compose logs spark-window-aggregator --tail 200
+          docker compose logs event-generator --tail 100
+
+      - name: Tear down
+        if: always()
+        run: docker compose down -v

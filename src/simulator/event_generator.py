@@ -22,16 +22,14 @@ import uuid
 import time
 import random
 import logging
-from datetime import datetime, timedelta
+from datetime import datetime
 from typing import List, Dict, Tuple
 from faker import Faker
 import signal
-import sys
 
 from event_models import (
     PageViewEvent, ProductClickEvent, AddToCartEvent,
     PurchaseEvent, AbandonmentEvent,
-    PurchaseItem, Address, CartItem,
     PageType, DeviceType, ListType, PaymentMethod, AbandonmentStage,
     PRODUCT_CATALOG, USER_BEHAVIOR_PROFILES
 )
