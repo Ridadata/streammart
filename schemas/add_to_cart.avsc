@@ -1,0 +1,75 @@
+{
+  "namespace": "com.streammart.events",
+  "type": "record",
+  "name": "AddToCart",
+  "doc": "User added product to shopping cart - high purchase intent",
+  "fields": [
+    {
+      "name": "event_id",
+      "type": "string",
+      "doc": "Unique identifier for this event (UUID v4)"
+    },
+    {
+      "name": "session_id",
+      "type": "string",
+      "doc": "Session identifier"
+    },
+    {
+      "name": "user_id",
+      "type": ["null", "string"],
+      "default": null,
+      "doc": "User identifier - null if anonymous"
+    },
+    {
+      "name": "timestamp",
+      "type": "long",
+      "logicalType": "timestamp-millis",
+      "doc": "Event timestamp in milliseconds since epoch"
+    },
+    {
+      "name": "product_id",
+      "type": "string",
+      "doc": "Unique product identifier (SKU)"
+    },
+    {
+      "name": "product_name",
+      "type": "string",
+      "doc": "Human-readable product name"
+    },
+    {
+      "name": "product_category",
+      "type": "string",
+      "doc": "Product category"
+    },
+    {
+      "name": "product_price",
+      "type": "double",
+      "doc": "Product price in USD"
+    },
+    {
+      "name": "quantity",
+      "type": "int",
+      "default": 1,
+      "doc": "Number of items added to cart"
+    },
+    {
+      "name": "cart_total",
+      "type": "double",
+      "doc": "Total cart value after adding this item"
+    },
+    {
+      "name": "cart_item_count",
+      "type": "int",
+      "doc": "Total number of items in cart after this action"
+    },
+    {
+      "name": "device_type",
+      "type": {
+        "type": "enum",
+        "name": "DeviceType",
+        "symbols": ["DESKTOP", "MOBILE", "TABLET"]
+      },
+      "doc": "Type of device used"
+    }
+  ]
+}

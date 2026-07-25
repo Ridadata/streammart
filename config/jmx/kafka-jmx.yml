@@ -1,0 +1,84 @@
+# ==============================================================================
+# JMX Exporter Configuration for Kafka
+# Exports Kafka broker metrics to Prometheus format
+# ==============================================================================
+
+rules:
+  # Kafka broker metrics
+  - pattern: "kafka.server<type=(.+), name=(.+), clientId=(.+), topic=(.+), partition=(.*)><>Value"
+    name: kafka_server_$1_$2
+    type: GAUGE
+    labels:
+      clientId: "$3"
+      topic: "$4"
+      partition: "$5"
+
+  - pattern: "kafka.server<type=(.+), name=(.+), clientId=(.+), brokerHost=(.+), brokerPort=(.+)><>Value"
+    name: kafka_server_$1_$2
+    type: GAUGE
+    labels:
+      clientId: "$3"
+      broker: "$4:$5"
+
+  - pattern: "kafka.server<type=(.+), name=(.+)><>Value"
+    name: kafka_server_$1_$2
+    type: GAUGE
+
+  - pattern: "kafka.server<type=(.+), name=(.+), clientId=(.+)><>Value"
+    name: kafka_server_$1_$2
+    type: GAUGE
+    labels:
+      clientId: "$3"
+
+  # Controller metrics
+  - pattern: "kafka.controller<type=(.+), name=(.+)><>Value"
+    name: kafka_controller_$1_$2
+    type: GAUGE
+
+  # Network metrics
+  - pattern: "kafka.network<type=(.+), name=(.+)><>Value"
+    name: kafka_network_$1_$2
+    type: GAUGE
+
+  # Log metrics
+  - pattern: "kafka.log<type=(.+), name=(.+), topic=(.+), partition=(.+)><>Value"
+    name: kafka_log_$1_$2
+    type: GAUGE
+    labels:
+      topic: "$3"
+      partition: "$4"
+
+  # Topic metrics
+  - pattern: "kafka.topic<type=(.+), name=(.+), topic=(.+)><>Value"
+    name: kafka_topic_$1_$2
+    type: GAUGE
+    labels:
+      topic: "$3"
+
+  # Consumer group metrics
+  - pattern: "kafka.([a-z]+)<type=(.+), name=(.+), clientId=(.+), topic=(.+), partition=(.*)><>Value"
+    name: kafka_$1_$2_$3
+    type: GAUGE
+    labels:
+      clientId: "$4"
+      topic: "$5"
+      partition: "$6"
+
+  # Generic metrics
+  - pattern: kafka.(.+)<type=(.+), name=(.+)><>Value
+    name: kafka_$1_$2_$3
+    type: GAUGE
+
+  # Counters
+  - pattern: kafka.(.+)<type=(.+), name=(.+), (.+)=(.+)><>Count
+    name: kafka_$1_$2_$3
+    type: COUNTER
+    labels:
+      "$4": "$5"
+
+  - pattern: kafka.(.+)<type=(.+), name=(.+)><>Count
+    name: kafka_$1_$2_$3
+    type: COUNTER
+
+  # Default match-all
+  - pattern: ".*"

@@ -1,0 +1,25 @@
+# ============================================================================
+# Grafana Datasource: PostgreSQL
+# ============================================================================
+
+apiVersion: 1
+
+datasources:
+  - name: PostgreSQL
+    type: postgres
+    uid: postgres
+    access: proxy
+    url: postgres:5432
+    user: $POSTGRES_USER
+    secureJsonData:
+      password: $POSTGRES_PASSWORD
+    database: $POSTGRES_DB
+    jsonData:
+      database: $POSTGRES_DB
+      sslmode: 'disable'
+      maxOpenConns: 10
+      maxIdleConns: 5
+      connMaxLifetime: 14400
+      postgresVersion: 1500
+      timescaledb: false
+    editable: true

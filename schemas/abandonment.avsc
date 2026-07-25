@@ -1,0 +1,91 @@
+{
+  "namespace": "com.streammart.events",
+  "type": "record",
+  "name": "Abandonment",
+  "doc": "User left site with items in cart - abandonment signal",
+  "fields": [
+    {
+      "name": "event_id",
+      "type": "string",
+      "doc": "Unique identifier for this event (UUID v4)"
+    },
+    {
+      "name": "session_id",
+      "type": "string",
+      "doc": "Session identifier"
+    },
+    {
+      "name": "user_id",
+      "type": ["null", "string"],
+      "default": null,
+      "doc": "User identifier - null if anonymous"
+    },
+    {
+      "name": "timestamp",
+      "type": "long",
+      "logicalType": "timestamp-millis",
+      "doc": "Event timestamp in milliseconds since epoch"
+    },
+    {
+      "name": "cart_items",
+      "type": {
+        "type": "array",
+        "items": {
+          "type": "record",
+          "name": "CartItem",
+          "fields": [
+            {
+              "name": "product_id",
+              "type": "string"
+            },
+            {
+              "name": "product_name",
+              "type": "string"
+            },
+            {
+              "name": "product_category",
+              "type": "string"
+            },
+            {
+              "name": "quantity",
+              "type": "int"
+            },
+            {
+              "name": "price",
+              "type": "double"
+            }
+          ]
+        }
+      },
+      "doc": "Items left in cart at abandonment"
+    },
+    {
+      "name": "cart_total",
+      "type": "double",
+      "doc": "Total value of abandoned cart"
+    },
+    {
+      "name": "abandonment_stage",
+      "type": {
+        "type": "enum",
+        "name": "AbandonmentStage",
+        "symbols": ["CART", "CHECKOUT", "PAYMENT"]
+      },
+      "doc": "Stage at which user abandoned"
+    },
+    {
+      "name": "session_duration_seconds",
+      "type": "int",
+      "doc": "Total session duration before abandonment"
+    },
+    {
+      "name": "device_type",
+      "type": {
+        "type": "enum",
+        "name": "DeviceType",
+        "symbols": ["DESKTOP", "MOBILE", "TABLET"]
+      },
+      "doc": "Type of device used"
+    }
+  ]
+}

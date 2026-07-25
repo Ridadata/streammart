@@ -1,0 +1,124 @@
+{
+  "namespace": "com.streammart.events",
+  "type": "record",
+  "name": "Purchase",
+  "doc": "Completed purchase transaction - conversion event",
+  "fields": [
+    {
+      "name": "event_id",
+      "type": "string",
+      "doc": "Unique identifier for this event (UUID v4)"
+    },
+    {
+      "name": "session_id",
+      "type": "string",
+      "doc": "Session identifier"
+    },
+    {
+      "name": "user_id",
+      "type": ["null", "string"],
+      "default": null,
+      "doc": "User identifier - should not be null for purchases"
+    },
+    {
+      "name": "timestamp",
+      "type": "long",
+      "logicalType": "timestamp-millis",
+      "doc": "Event timestamp in milliseconds since epoch"
+    },
+    {
+      "name": "order_id",
+      "type": "string",
+      "doc": "Unique order identifier"
+    },
+    {
+      "name": "items",
+      "type": {
+        "type": "array",
+        "items": {
+          "type": "record",
+          "name": "PurchaseItem",
+          "fields": [
+            {
+              "name": "product_id",
+              "type": "string"
+            },
+            {
+              "name": "product_name",
+              "type": "string"
+            },
+            {
+              "name": "product_category",
+              "type": "string"
+            },
+            {
+              "name": "quantity",
+              "type": "int"
+            },
+            {
+              "name": "unit_price",
+              "type": "double"
+            },
+            {
+              "name": "total_price",
+              "type": "double"
+            }
+          ]
+        }
+      },
+      "doc": "List of purchased items"
+    },
+    {
+      "name": "subtotal",
+      "type": "double",
+      "doc": "Subtotal before tax and shipping"
+    },
+    {
+      "name": "tax",
+      "type": "double",
+      "doc": "Tax amount"
+    },
+    {
+      "name": "shipping",
+      "type": "double",
+      "doc": "Shipping cost"
+    },
+    {
+      "name": "total",
+      "type": "double",
+      "doc": "Total order amount (subtotal + tax + shipping)"
+    },
+    {
+      "name": "payment_method",
+      "type": {
+        "type": "enum",
+        "name": "PaymentMethod",
+        "symbols": ["CREDIT_CARD", "DEBIT_CARD", "PAYPAL", "APPLE_PAY", "GOOGLE_PAY"]
+      },
+      "doc": "Payment method used"
+    },
+    {
+      "name": "shipping_address",
+      "type": {
+        "type": "record",
+        "name": "Address",
+        "fields": [
+          {"name": "country", "type": "string"},
+          {"name": "state", "type": "string"},
+          {"name": "city", "type": "string"},
+          {"name": "zipcode", "type": "string"}
+        ]
+      },
+      "doc": "Shipping address (anonymized)"
+    },
+    {
+      "name": "device_type",
+      "type": {
+        "type": "enum",
+        "name": "DeviceType",
+        "symbols": ["DESKTOP", "MOBILE", "TABLET"]
+      },
+      "doc": "Type of device used"
+    }
+  ]
+}
