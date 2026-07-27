@@ -2,10 +2,12 @@
 
 ## Read First
 
-1. [../README.md](../README.md): architecture, quick start, and design decisions
-2. [../CLAUDE.md](../CLAUDE.md): current implementation status, table-ownership matrix, and roadmap
-3. [troubleshooting.md](troubleshooting.md): common failures and fixes
-4. [design_decisions.md](design_decisions.md): technology alternatives considered and why
+1. [../README.md](../README.md): project overview, key features, quick start
+2. [../ARCHITECTURE.md](../ARCHITECTURE.md): full system diagram, table ownership, every job/DAG in detail
+3. [../DESIGN_DECISIONS.md](../DESIGN_DECISIONS.md): technology alternatives considered and why
+4. [../RUNBOOK.md](../RUNBOOK.md): command-by-command first-run guide with real output
+5. [../CLAUDE.md](../CLAUDE.md): current implementation status and roadmap
+6. [troubleshooting.md](troubleshooting.md): common failures and fixes
 
 ## Quick Start (Low Resource Mode)
 
@@ -140,20 +142,24 @@ CREATE INDEX idx_product_performance_date ON product_performance(date DESC);
 
 ```
 Root level:
-├── README.md            # Architecture, quick start, design decisions
-├── CLAUDE.md             # Implementation status, table ownership, roadmap
+├── README.md              # Overview, key features, quick start
+├── ARCHITECTURE.md         # Full system diagram, table ownership, job/DAG detail
+├── DESIGN_DECISIONS.md     # Technology alternatives considered and why
+├── RUNBOOK.md              # Command-by-command first-run guide
+├── CLAUDE.md               # Implementation status and roadmap
 ├── LICENSE
 
 docs/ folder:
 ├── README.md              # This file — docs hub
-├── design_decisions.md    # Technology alternatives considered and why
+├── images/                # Screenshots and demo GIF (see images/README.md)
 └── troubleshooting.md     # Error diagnosis
 ```
 
 ### Updates Needed
 
 If you modify the project:
-- [ ] Update `README.md` if architecture or table ownership changes
+- [ ] Update `ARCHITECTURE.md` if the data flow, table ownership, or any job's settings change
+- [ ] Update `README.md`'s Project Metrics if the counts (services, topics, jobs, DAGs, tables, panels, tests) change
 - [ ] Update `CLAUDE.md`'s status table and roadmap checklist
 - [ ] Update `docs/troubleshooting.md` if a new failure mode is discovered
 - [ ] Verify every relative link in the doc you're editing still resolves — this file has previously drifted to link at files that were never created

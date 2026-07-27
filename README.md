@@ -1,313 +1,273 @@
-# StreamMart — Real-Time E-Commerce Analytics Pipeline
+<!-- The CI badge below points at github.com/streammart/streammart — a placeholder org/repo.
+     Update it to match wherever this actually gets pushed, or the badge will never resolve. -->
+<div align="center">
+
+# StreamMart
+
+### Real-Time E-Commerce Analytics Platform
+
+**Clickstream ingestion → Spark Structured Streaming → Postgres + a MinIO data lake → Grafana, with Airflow reconciling the numbers every night.**
 
 [![CI](https://github.com/streammart/streammart/actions/workflows/ci.yml/badge.svg)](.github/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
-[![Python 3.11](https://img.shields.io/badge/python-3.11-blue.svg)](requirements.txt)
+[![Python 3.11](https://img.shields.io/badge/Python-3.11-3776AB?logo=python&logoColor=white)](requirements.txt)
+[![Kafka](https://img.shields.io/badge/Kafka-KRaft-231F20?logo=apachekafka&logoColor=white)](docker-compose.yml)
+[![Spark](https://img.shields.io/badge/Spark-3.5.0-E25A1C?logo=apachespark&logoColor=white)](src/spark_jobs)
+[![Airflow](https://img.shields.io/badge/Airflow-2.8.0-017CEE?logo=apacheairflow&logoColor=white)](src/airflow_dags)
+[![PostgreSQL](https://img.shields.io/badge/PostgreSQL-15-4169E1?logo=postgresql&logoColor=white)](sql/init_postgres.sql)
+[![Docker](https://img.shields.io/badge/Docker-Compose-2496ED?logo=docker&logoColor=white)](docker-compose.yml)
 
-A streaming data pipeline that ingests clickstream events from a simulated e-commerce platform, processes them with Spark Structured Streaming, stores raw data in a MinIO data lake, and surfaces real-time KPIs in Grafana — all orchestrated by Apache Airflow.
+[Quick Start](#-quick-start) · [Architecture](ARCHITECTURE.md) · [Runbook](RUNBOOK.md) · [Design Decisions](DESIGN_DECISIONS.md) · [Roadmap](#-roadmap)
 
-> **Note on the CI badge:** it will only resolve once this repository is pushed under a real GitHub org/user — update the badge URL in this file to match your actual `owner/repo` path.
-
----
-
-## Architecture
-
-```
-Event Simulator
-     │  (5 event types @ configurable rate — EVENT_GENERATOR_RATE)
-     ▼
-Kafka (KRaft, 6 topics, 3 partitions each)
-     │
-     ├──► Spark: Raw Event Writer ──────────────────► MinIO (Parquet data lake)
-     │         partitioned by year/month/day/event_type; raw JSON preserved
-     │
-     ├──► Spark: Window Aggregator ────────────────► PostgreSQL metrics_1min
-     │      │                                          1-min tumbling window, 30s trigger
-     │      └──────────────────────────────────────► PostgreSQL metrics_5min
-     │                                                 5-min tumbling window, 60s trigger
-     │                                                 (computed independently from the event
-     │                                                 stream — NOT summed from metrics_1min,
-     │                                                 see Design Decisions)
-     │
-     ├──► Spark: Session Tracker ──────────────────► PostgreSQL session_summary
-     │         session_window (30-min gap), append-mode output —
-     │         a session lands ~40-70 min after its last event (see Design Decisions)
-     │
-     └──► Spark: Revenue Aggregator ───────────────► PostgreSQL product_performance
-               daily product-level revenue (bounded-state daily tumbling window)
-
-PostgreSQL
-     │
-     ├──► postgres-maintenance (every 60s, sql/maintenance.sql):
-     │         DQ heartbeat checks, pipeline heartbeat, retention deletes
-     │         (does NOT compute metrics_5min/daily_revenue/product_performance —
-     │         each of those has exactly one writer; see Table Ownership below)
-     │
-     └──► Airflow DAGs (batch/reconciliation layer):
-               • daily_batch_processing  @ 02:00 → daily_summary, product_daily_performance
-               • daily_summary           @ 01:00 → daily_revenue (authoritative)
-               • data_quality            every 6h → data_quality_checks
-               • pipeline_health_check   hourly   → connectivity/freshness alerts
-
-Grafana ◄──── PostgreSQL (operational dashboards) + Prometheus (infra metrics)
-Prometheus ◄──── kafka-jmx-exporter, kafka-exporter (consumer lag), postgres-exporter,
-                 Spark master/worker (built-in PrometheusServlet)
-Loki ◄──── promtail ◄──── all container logs
-```
+</div>
 
 ---
 
-## Table Ownership
+## Overview
 
-Every table has exactly one writer. This is a project convention, not an accident — an earlier version of this pipeline had two independent processes writing `product_performance` and `daily_revenue`, which is a guaranteed collision. See `CLAUDE.md` for the full rationale.
+StreamMart simulates a mid-size e-commerce platform's clickstream — pageviews, product clicks,
+cart activity, purchases, abandonment — and processes it through the same architectural pattern
+real streaming platforms use: a fast, approximate streaming layer for operational dashboards,
+and a slower, authoritative batch layer for reporting. Four independent Spark Structured
+Streaming jobs consume the same Kafka topics and write to different tables, each with exactly one
+owner, no shared state, no collisions.
 
-| Table | Sole Writer | Cadence |
-|---|---|---|
-| `metrics_1min` | `window_aggregator.py` | ~30s |
-| `metrics_5min` | `window_aggregator.py` | ~60s |
-| `session_summary` | `session_tracker.py` | ~1min (append-mode) |
-| `product_performance` | `revenue_aggregator.py` | ~30s |
-| `daily_revenue` | Airflow `daily_summary` DAG | daily @ 01:00 |
-| `daily_summary`, `product_daily_performance` | Airflow `daily_batch_processing` DAG | daily @ 02:00 |
-| `data_quality_checks` | Airflow `data_quality` DAG (business-rule checks) + `postgres-maintenance` (lightweight heartbeats, distinct `check_name` prefix) | every 6h / every 60s |
-| `pipeline_monitoring` | Every DAG + `postgres-maintenance` (append-only event log — intentionally multi-writer, each under its own `job_name`) | varies |
+It's a **27-service** Docker Compose stack — Kafka, Spark (a real 2-worker cluster, not
+`local[*]`), PostgreSQL, MinIO, Airflow, Grafana, and Prometheus/Loki — designed to be read
+end-to-end in an afternoon and run end-to-end in one command.
 
-There is deliberately **no `events_raw` table** — raw, per-event data lives in MinIO as Parquet, not Postgres.
+<table align="center">
+<tr>
+<td align="center" width="140">🖼️<br/><b>Architecture</b><br/><sub>Mermaid diagram below</sub></td>
+<td align="center" width="140">📊<br/><b>Dashboard</b><br/><sub><a href="docs/images/README.md">add screenshot</a></sub></td>
+<td align="center" width="140">🌀<br/><b>Airflow DAGs</b><br/><sub><a href="docs/images/README.md">add screenshot</a></sub></td>
+<td align="center" width="140">🎬<br/><b>Demo GIF</b><br/><sub><a href="docs/images/README.md">add recording</a></sub></td>
+</tr>
+</table>
+
+<!--
+  Screenshots and a demo GIF are intentionally not embedded yet — see
+  docs/images/README.md for exactly what to capture and where to drop it.
+  Once added, uncomment and fill in:
+  ![Grafana Dashboard](docs/images/dashboard-overview.png)
+  ![Airflow DAGs](docs/images/airflow-dags.png)
+  ![Demo](docs/images/demo.gif)
+-->
 
 ---
 
-## Tech Stack
+## ✨ Key Features
 
-| Layer | Technology | Version |
-|---|---|---|
-| Message Broker | Apache Kafka (KRaft, no ZooKeeper) | 7.5.3 |
-| Stream Processing | Apache Spark Structured Streaming | 3.5.0 |
-| Data Lake | MinIO (S3-compatible) | latest |
-| Warehouse | PostgreSQL | 15 |
-| Orchestration | Apache Airflow | 2.8.0 |
-| Dashboards | Grafana | latest |
-| Metrics | Prometheus + Loki | latest |
-| Language | Python | 3.11 |
+| | |
+|---|---|
+| 🔀 **Two independent streaming granularities** | `metrics_1min` and `metrics_5min` are each computed directly from the raw Kafka stream — not one derived from the other, because summing pre-aggregated approximate-distinct counts across windows is mathematically wrong. See [why](DESIGN_DECISIONS.md#why-metrics_5min-is-computed-independently-not-rolled-up-from-metrics_1min). |
+| 🔒 **Single-writer-per-table discipline** | Every Postgres table has exactly one process allowed to write to it — enforced by convention and documented in a table-ownership matrix, after an earlier version of this pipeline learned the hard way what happens without one. |
+| ⏱️ **Honest session windows** | User sessions use Spark's `session_window` (30-min inactivity gap) instead of a tumbling window that would split real sessions at arbitrary boundaries — and the README tells you the real cost: sessions land 40-70 minutes after their last event, by design, not by bug. |
+| 🔁 **Idempotent everywhere** | Every streaming write path uses `psycopg2` + `ON CONFLICT DO UPDATE`, not Spark's JDBC sink — because JDBC's `append` mode has no upsert story, and every job here can legitimately re-emit a window after a restart. |
+| 🛡️ **Bounded state, on purpose** | Every windowed aggregation groups by a real `window()`/`session_window()` column, not a derived date column — the one thing that lets Spark's watermark actually evict old state instead of growing memory forever. |
+| 📈 **Full observability, not a demo of it** | 9 real Prometheus scrape targets (Kafka JMX, Kafka consumer lag, MinIO, Postgres, Spark master/worker/applications via its built-in PrometheusServlet), a 9-panel Grafana dashboard, and centralized logs via Loki — all confirmed live, not just configured. |
+| 🧪 **Live-validated, not just unit-tested** | 36 automated tests, plus a documented multi-hour live validation that found and fixed 9 real bugs invisible to code review — including one in the Spark job an earlier audit called "the one that worked correctly." See [what was actually found](RUNBOOK.md#12-what-was-fixed-to-make-this-runbook-possible). |
+| 📝 **A runbook with real output, not invented examples** | [RUNBOOK.md](RUNBOOK.md) shows the actual command output from an actual run — actual timings (Spark cluster healthy in ~14s, all 4 jobs registered by ~156s), actual measured memory (~6.4 GB core / ~7.9 GB core+obs), not estimates. |
 
 ---
 
-## Project Structure
+## Architecture at a Glance
 
-```
-streammart/
-├── CLAUDE.md               # Architecture reference, table-ownership matrix,
-│                            # coding standards, roadmap — read this first
-├── src/
-│   ├── simulator/           # Event generator (Faker-based clickstream)
-│   ├── spark_jobs/          # 4 PySpark Structured Streaming jobs
-│   │   ├── raw_event_writer.py       # Kafka → MinIO Parquet (schema-on-read)
-│   │   ├── window_aggregator.py      # 1-min AND 5-min windows → PostgreSQL
-│   │   ├── session_tracker.py        # session_window (append mode) → PostgreSQL
-│   │   └── revenue_aggregator.py     # Daily product revenue → PostgreSQL
-│   ├── airflow_dags/        # 4 Airflow DAGs (batch/reconciliation layer)
-│   └── utils/                # Shared Postgres/MinIO client helpers
-├── sql/
-│   ├── init_postgres.sql    # Schema DDL (tables, indexes, mat views)
-│   └── maintenance.sql      # 60s heartbeat + retention job (not a rollup —
-│                             # see CLAUDE.md for why metrics_5min moved to Spark)
-├── config/
-│   ├── grafana/              # Provisioned dashboards and datasources
-│   ├── prometheus/           # Scrape config, incl. Spark + kafka-exporter targets
-│   ├── spark/                # Spark PrometheusServlet metrics config
-│   ├── promtail/, loki/      # Log shipping
-│   └── jmx/                  # Kafka JMX exporter rules
-├── schemas/                  # Avro schemas (drafted, not yet wired into the
-│                              # producer/consumers — see Limitations)
-├── tests/
-│   ├── unit/                 # No Docker required — Spark transform logic +
-│   │                          # DAG integrity tests
-│   └── integration/          # Requires a running stack; skips gracefully if not
-├── .github/workflows/ci.yml  # Lint, unit tests, compose smoke test
-├── docker-compose.yml        # Full stack (3 profiles: default, obs, orchestration)
-├── Dockerfile.event-generator
-└── .env.example               # Copy to .env and fill in credentials
+```mermaid
+flowchart LR
+    SIM["Event Simulator"] --> KAFKA[("Kafka<br/>6 topics")]
+    KAFKA --> S1["Raw Event<br/>Writer"] --> LAKE[("MinIO<br/>Parquet Lake")]
+    KAFKA --> S2["Window<br/>Aggregator"] --> PG1[("metrics_1min<br/>metrics_5min")]
+    KAFKA --> S3["Session<br/>Tracker"] --> PG2[("session_summary")]
+    KAFKA --> S4["Revenue<br/>Aggregator"] --> PG3[("product_performance")]
+    PG1 & PG2 & PG3 --> AF["Airflow<br/>nightly reconciliation"] --> PG4[("daily_revenue<br/>(authoritative)")]
+    PG1 & PG2 & PG3 & PG4 --> GRAF["Grafana"]
+
+    style KAFKA fill:#2b2b3d,color:#fff
+    style LAKE fill:#3a2f1f,color:#fff
+    style PG1 fill:#1f3a5f,color:#fff
+    style PG2 fill:#1f3a5f,color:#fff
+    style PG3 fill:#1f3a5f,color:#fff
+    style PG4 fill:#1f3a5f,color:#fff
 ```
 
+**Streaming layer** (4 Spark jobs, seconds-to-minutes latency) feeds operational dashboards.
+**Batch layer** (Airflow, nightly) is what you'd actually report externally. Neither pretends to
+be the other. Full system diagram, table ownership, and every job's watermark/trigger/output-mode
+settings: **[ARCHITECTURE.md](ARCHITECTURE.md)**.
+
 ---
 
-## Getting Started
+## 🚀 Quick Start
 
-> **New to this project?** [RUNBOOK.md](RUNBOOK.md) is a command-by-command first-run guide with
-> real, verified output for every step — use it instead of improvising from the summary below.
-
-### Prerequisites
-
-- Docker Desktop (≥ 4.x). RAM: the core profile (Kafka, Postgres, MinIO, Spark cluster, all 4
-  streaming jobs, event generator, plus Kafka UI/pgAdmin/Schema Registry) was measured at ~6.4 GB
-  real usage on Docker Desktop; core + `obs` measured ~7.9 GB. 12 GB is a comfortable target if
-  you want core + `obs` + `orchestration` running simultaneously — see RUNBOOK.md §11 for the
-  measured numbers and a reduced-footprint startup command if you're constrained.
-- Docker Compose v2
-- Git
-
-### Quick Start
+Get the core pipeline running in under 2 minutes of commands (the Spark jobs take a few minutes
+longer to finish downloading dependencies and start processing — see
+[RUNBOOK.md](RUNBOOK.md) for real, timed output of the whole thing).
 
 ```bash
-# 1. Clone and configure
-git clone <repo-url>
-cd streammart
+git clone <repo-url> && cd streammart
 cp .env.example .env
-# Edit .env — set strong values for POSTGRES_PASSWORD, MINIO_ACCESS_KEY,
-# MINIO_SECRET_KEY, AIRFLOW_ADMIN_PASSWORD, GRAFANA_ADMIN_PASSWORD,
-# PGADMIN_DEFAULT_PASSWORD. There are no working default credentials —
-# every service reads these from .env and fails fast if they're unset.
+# Edit .env: set real values for POSTGRES_PASSWORD, MINIO_ACCESS_KEY/SECRET_KEY,
+# AIRFLOW_ADMIN_PASSWORD, GRAFANA_ADMIN_PASSWORD, AIRFLOW__CORE__FERNET_KEY.
+# There are no working defaults — every service fails fast if these are unset.
 
-# 2. Start the core pipeline (Kafka, Spark, PostgreSQL, MinIO, event generator)
-docker compose up -d
-
-# 3. (Optional) Start observability stack (Grafana, Prometheus, Loki, kafka-exporter)
-docker compose --profile obs up -d
-
-# 4. (Optional) Start orchestration stack (Airflow)
-docker compose --profile orchestration up -d
-# airflow-init automatically creates the admin user AND the
-# streammart_postgres connection every DAG uses — no manual setup step.
+docker compose up -d                          # Kafka, Spark, Postgres, MinIO, event generator
+docker compose --profile obs up -d            # optional: Grafana, Prometheus, Loki
+docker compose --profile orchestration up -d  # optional: Airflow
 ```
 
-### Verify the Pipeline is Running
+<details>
+<summary><b>Verify it's actually working</b></summary>
 
 ```bash
-# Check all core services are healthy
 docker compose ps
-
-# Tail Spark logs to confirm events are flowing
 docker logs -f streammart-spark-window-aggregator
 
-# Confirm data in PostgreSQL
 docker exec -it streammart-postgres psql -U streammart_user -d streammart \
   -c "SELECT event_type, count, window_start FROM metrics_1min ORDER BY window_start DESC LIMIT 10;"
-
-# Check raw Parquet files are landing in MinIO
-# Open http://localhost:9001 → login with MINIO_ACCESS_KEY / MINIO_SECRET_KEY from .env
 ```
 
-### Access Points
+Full command-by-command validation with real expected output for all 14 subsystems (Kafka
+topics, Postgres init, MinIO buckets, Spark job scheduling, Airflow DAGs, Grafana provisioning,
+Prometheus scraping...): **[RUNBOOK.md](RUNBOOK.md)**.
+
+</details>
+
+<details>
+<summary><b>Access points</b></summary>
 
 | Service | URL | Credentials |
 |---|---|---|
-| Grafana | http://localhost:3000 | `GRAFANA_ADMIN_USER` / `GRAFANA_ADMIN_PASSWORD` from `.env` |
+| Grafana | http://localhost:3000 | `GRAFANA_ADMIN_USER` / `GRAFANA_ADMIN_PASSWORD` |
 | Kafka UI | http://localhost:8080 | — |
 | Spark Master UI | http://localhost:8082 | — |
-| MinIO Console | http://localhost:9001 | `MINIO_ACCESS_KEY` / `MINIO_SECRET_KEY` from `.env` |
-| Airflow | http://localhost:8085 | `AIRFLOW_ADMIN_USER` / `AIRFLOW_ADMIN_PASSWORD` from `.env` |
+| MinIO Console | http://localhost:9001 | `MINIO_ACCESS_KEY` / `MINIO_SECRET_KEY` |
+| Airflow | http://localhost:8085 | `AIRFLOW_ADMIN_USER` / `AIRFLOW_ADMIN_PASSWORD` |
 | Prometheus | http://localhost:9090 | — |
-| pgAdmin | http://localhost:5050 | `PGADMIN_DEFAULT_EMAIL` / `PGADMIN_DEFAULT_PASSWORD` from `.env` |
+| pgAdmin | http://localhost:5050 | `PGADMIN_DEFAULT_EMAIL` / `PGADMIN_DEFAULT_PASSWORD` |
 | Schema Registry | http://localhost:8081 | — |
 
----
+</details>
 
-## Pipeline Deep Dive
-
-### Event Schema
-
-The simulator generates 5 event types:
-
-| Topic | Event | Key Fields |
-|---|---|---|
-| `events.pageview` | Page visit | session_id, user_id, page_url, device_type |
-| `events.product_click` | Product viewed | product_id, product_name, product_price |
-| `events.add_to_cart` | Cart action | product_id, quantity, cart_total |
-| `events.purchase` | Completed order | order_id, items[], total, payment_method |
-| `events.abandonment` | Cart abandoned | cart_total, abandonment_stage |
-
-A 6th topic `events.dlq` (Dead Letter Queue) exists in the schema but is not yet a fully wired-up part of the pipeline — see Limitations.
-
-### Spark Streaming Jobs
-
-**Window Aggregator** (`spark_jobs/window_aggregator.py`)
-- Reads all 5 event topics
-- Computes **two independent** windowed aggregations off the same parsed stream: 1-minute (→ `metrics_1min`, 30s trigger) and 5-minute (→ `metrics_5min`, 60s trigger) — count, unique sessions, unique users per event type
-- 5-minute metrics are computed directly from the event stream, not derived from `metrics_1min` — summing five pre-aggregated `approx_count_distinct` values across windows does not produce a valid 5-minute distinct count
-- Watermark: 2 minutes (handles late data)
-- Writes via psycopg2 `ON CONFLICT (window_start, event_type) DO UPDATE`
-
-**Session Tracker** (`spark_jobs/session_tracker.py`)
-- Groups events by `session_id` using Spark's `session_window` (30-minute inactivity gap)
-- Computes per-session KPIs: funnel counts, conversion flag, revenue, duration
-- Runs in `outputMode("append")` — Spark does not support `update` mode for session-window aggregations. A session is emitted once, after the 40-minute watermark confirms it's closed, so it appears in `session_summary` roughly 40-70 minutes after its last event, not incrementally
-- Writes via psycopg2 `ON CONFLICT (session_id) DO UPDATE` (a restart safety net — under normal operation this is effectively insert-only)
-
-**Raw Event Writer** (`spark_jobs/raw_event_writer.py`)
-- Writes all events as Parquet to MinIO, partitioned by `year/month/day/event_type`
-- Preserves the full raw JSON payload as-is (schema-on-read) rather than exploding it into typed columns, so producer-side field changes never break this job
-- Snappy compression; immutable audit trail for reprocessing
-
-**Revenue Aggregator** (`spark_jobs/revenue_aggregator.py`)
-- Reads only `events.purchase`, explodes line items
-- Computes daily product-level revenue, units sold, and order count, grouped by a real daily tumbling window (not just a derived date column — the watermark can only evict state for a grouping key that includes an actual `window()` column)
-- Sole writer of `product_performance`; writes via psycopg2 `ON CONFLICT (product_id, date) DO UPDATE`
-
-### Batch Layer (Airflow DAGs)
-
-| DAG | Schedule | Purpose |
-|---|---|---|
-| `streammart_daily_batch_processing` | 02:00 daily | Joins metrics_1min + session_summary → daily_summary; denormalizes product_performance → product_daily_performance |
-| `streammart_daily_summary` | 01:00 daily | Revenue rollup from session_summary → daily_revenue (authoritative) |
-| `streammart_data_quality` | Every 6 hours | Completeness, accuracy, timeliness, and cross-pipeline consistency checks |
-| `streammart_pipeline_health_check` | Hourly | Connectivity, freshness, and storage health checks |
-
-All four DAGs use the `streammart_postgres` connection, which `airflow-init` provisions automatically on first boot — no manual setup required.
-
-### Maintenance Job
-
-`sql/maintenance.sql` runs every 60 seconds inside the `postgres-maintenance` container and:
-1. Writes lightweight DQ heartbeat checks (distinct from the Airflow DAG's business-rule checks) into `data_quality_checks`
-2. Inserts a pipeline heartbeat into `pipeline_monitoring`
-3. Runs retention deletes (keeps 14 days of `metrics_5min`, 3 days of `metrics_1min`/`session_summary`)
-
-It does **not** compute `metrics_5min`, `daily_revenue`, or `product_performance` — each of those has exactly one writer elsewhere (see Table Ownership).
+**Prerequisites:** Docker Desktop + Compose v2, Git. RAM: core profile measured at ~6.4 GB real
+usage, core+obs ~7.9 GB — see [RUNBOOK.md §11](RUNBOOK.md#11-resource-guidance-measured-not-estimated)
+for exact numbers and a reduced-footprint command if you're constrained.
 
 ---
 
-## Design Decisions
+## 📡 Operational Highlights
 
-**Why KRaft (no ZooKeeper)?**
-Simplifies operations; ZooKeeper was officially deprecated in Kafka 3.x.
+<table>
+<tr>
+<td valign="top" width="50%">
 
-**Why `session_window` instead of tumbling window for sessionization?**
-A tumbling window splits sessions that cross fixed boundaries (e.g., 09:45–10:15 would split at 10:00). `session_window` extends the window as long as there's activity within the gap, matching the real semantics of a user session. The tradeoff: Spark only supports `append` output mode for session-window aggregations, which means sessions are emitted once (after the watermark confirms closure) rather than incrementally — see Session Tracker above.
+**Kafka** — 6 topics, KRaft mode (no ZooKeeper), 3 partitions each, keyed on `session_id` so a
+user's events stay ordered on one partition.
 
-**Why psycopg2 instead of JDBC for writes?**
-The Spark JDBC writer's `mode("append")` doesn't support `ON CONFLICT`. Every write path in this pipeline that targets a table with a unique/primary key uses psycopg2 `executemany` + `ON CONFLICT DO UPDATE` instead, for true idempotent upserts safe across Spark restarts and reprocessing. Batch sizes are small (bounded by event types, active sessions, or products per trigger), so `.collect()` in the driver is safe.
+**Spark** — a real 2-worker standalone cluster (not `local[*]`), 4 concurrent Structured Streaming
+jobs, each with its own checkpoint, watermark, and trigger interval. Confirmed live: all 4
+register with the master and start processing within ~156 seconds of a cold start.
 
-**Why is `metrics_5min` computed independently instead of rolled up from `metrics_1min`?**
-`unique_sessions`/`unique_users` are approximate distinct counts (`approx_count_distinct`). Summing five pre-aggregated 1-minute distinct counts to approximate a 5-minute distinct count is not mathematically valid — a session active across three consecutive 1-minute windows would be counted three times. The only correct fix is computing the 5-minute aggregation directly from the raw event stream, which is what `window_aggregator.py` does.
+**Data Lake** — MinIO, S3-compatible, Parquet, partitioned by `year/month/day/event_type`, raw
+JSON preserved per record (schema-on-read).
 
-**Why a separate batch layer alongside streaming?**
-Lambda architecture: streaming gives low-latency approximations; batch gives accurate end-of-day reconciliation. `daily_revenue`, computed nightly by Airflow, is authoritative for reporting — the streaming tables are for operational dashboards, not final numbers.
+</td>
+<td valign="top" width="50%">
+
+**PostgreSQL** — 9 tables, every one with exactly one writer, materialized views for dashboard
+queries, retention policies enforced by a 60-second maintenance job.
+
+**Airflow** — 4 DAGs covering nightly reconciliation, data quality, and pipeline health. Admin
+user and the `streammart_postgres` connection are auto-provisioned on first boot — idempotently,
+confirmed by actually restarting it against an existing database.
+
+**Grafana + Prometheus** — 1 dashboard, 9 panels, 2 datasources; 9 Prometheus scrape targets, all
+confirmed `up`, including Spark's own PrometheusServlet metrics.
+
+</td>
+</tr>
+</table>
 
 ---
 
-## Limitations & Future Improvements
+## 📊 Project Metrics
 
-- **Schema Registry**: deployed and running, but the pipeline currently uses JSON, not Avro — the schemas in `schemas/` are drafted but not yet wired into the producer or consumers. See `CLAUDE.md` roadmap.
-- **Dead Letter Queue**: the `events.dlq` topic exists but isn't a fully functional DLQ yet — it's only populated on local producer exceptions, and nothing consumes/replays it.
-- **Exactly-once end-to-end**: Kafka → Spark uses at-least-once delivery. psycopg2 upserts make writes idempotent, but duplicate events from the producer itself are not deduplicated.
-- **No secrets manager**: credentials are passed via environment variables (`.env`, gitignored). In production, use Vault or AWS/GCP Secrets Manager instead.
-- **Consumer lag monitoring**: `kafka-exporter` is deployed and correctly configured, but Spark Structured Streaming's Kafka source tracks progress via its own checkpoint files and does not commit consumer offsets to Kafka's `__consumer_offsets` — so `kafka_consumergroup_lag_sum` will not show data for these specific jobs. True lag visibility for Structured Streaming would need a custom `StreamingQueryListener`-based offset committer (e.g. `spark-sql-kafka-offset-committer`) or reading the checkpoint offset log directly.
-- **Spark cluster**: runs one master + two workers by default. Scale further by adding more `spark-worker-N` services in `docker-compose.yml`.
-- **No benchmarks published yet**: throughput/latency numbers under load haven't been measured and published. Tracked in `CLAUDE.md` roadmap.
+<div align="center">
+
+| 27 | 6 | 4 | 4 | 9 | 9 | 36 |
+|:---:|:---:|:---:|:---:|:---:|:---:|:---:|
+| Docker services | Kafka topics | Spark jobs | Airflow DAGs | Postgres tables | Grafana panels | Automated tests |
+
+</div>
+
+~3,600 lines of Python across the simulator, Spark jobs, and Airflow DAGs. 9 Prometheus scrape
+targets. 1 data lake. 0 tables with more than one writer.
 
 ---
 
-## Running Tests
+## Why This Project?
 
-```bash
-# Unit tests — no Docker required
-python -m pip install -r requirements.txt -r requirements-dev.txt
-python -m pytest tests/unit -v
+Most portfolio data pipelines are demonstrations of syntax — "here's how you write a Spark job,"
+"here's an Airflow DAG." StreamMart is aimed at the harder, less-photogenic problems that only
+show up once a pipeline has to actually run correctly over time:
 
-# Integration tests — require a running stack; skip automatically if one isn't reachable
-docker compose up -d
-python -m pytest tests/integration -v
-```
+- **What happens when the same micro-batch gets reprocessed after a restart?** (Idempotent
+  upserts, everywhere, not just where it was convenient.)
+- **What happens when two things want to write the same table?** (They don't — every table has
+  exactly one owner, and the one exception is documented and deliberate.)
+- **What happens when your windowed aggregation's state never gets evicted?** (It doesn't grow
+  forever, because every grouping key includes a real window column.)
+- **What happens when you actually run the thing for hours instead of reading the code?** (You
+  find bugs that code review can't — like a column named `count` silently colliding with
+  `tuple.count()` on a `pyspark.sql.Row`. That one's real, and it's documented in
+  [RUNBOOK.md](RUNBOOK.md) with the fix.)
 
-CI (`.github/workflows/ci.yml`) runs lint, the full unit test suite (including Airflow DAG integrity checks), and a Docker Compose smoke test that boots a reduced service set and verifies events actually flow end-to-end into `metrics_1min`.
+This project treats "it looks right" and "it's been proven to work" as different claims, and
+tries to only make the second one.
+
+---
+
+## Repository Guide
+
+| Document | What's in it |
+|---|---|
+| **[ARCHITECTURE.md](ARCHITECTURE.md)** | Full system diagram, table ownership, every Kafka topic/Spark job/Airflow DAG in detail, observability stack, repo layout |
+| **[DESIGN_DECISIONS.md](DESIGN_DECISIONS.md)** | Technology alternatives considered (Kafka vs. Pulsar, Spark vs. Flink, ...) and the pipeline-specific decisions forced by Spark's actual semantics |
+| **[RUNBOOK.md](RUNBOOK.md)** | Command-by-command first-run guide with real, captured output — assumes you've never run this before |
+| **[CLAUDE.md](CLAUDE.md)** | Living engineering record: current status per component, coding standards, and the roadmap checklist |
+| **[docs/troubleshooting.md](docs/troubleshooting.md)** | Common failure modes and fixes |
+
+---
+
+## 🗺️ Roadmap
+
+**Done:** every Critical item from the original audit; 9 of 10 High-priority items; a full live
+validation pass that found and fixed 9 real bugs across Spark, Airflow, and the observability
+stack. Full checklist with dates and detail: [CLAUDE.md §9](CLAUDE.md).
+
+**In progress / next:**
+- [ ] Prometheus alerting rules + Alertmanager (lag, freshness, job-down, DQ failure)
+- [ ] Schema Registry integration — Avro serde end-to-end, not just deployed and idle
+- [ ] A functional Dead Letter Queue (validation routing, quarantine consumer, replay tooling)
+- [ ] Published throughput/latency benchmarks under load
+- [ ] Real consumer-lag visibility for the Spark jobs (needs a checkpoint-offset committer — Structured Streaming doesn't use Kafka's native offset-commit mechanism)
+
+---
+
+## Contributing
+
+Issues and PRs welcome. Before opening one:
+
+1. Read [CLAUDE.md](CLAUDE.md) — it documents the coding standards and architectural principles this repo holds itself to (single-writer tables, no swallowed exceptions, no hardcoded credentials, no fabricated data to make a dashboard look alive).
+2. Run `python -m pytest tests/unit -v` — no Docker required.
+3. If you're touching a Spark job, DAG, or compose service, actually run it — see [RUNBOOK.md](RUNBOOK.md). This project has a documented history of bugs that only live validation caught.
+
+---
+
+## Acknowledgements
+
+Built on Apache Kafka, Apache Spark, Apache Airflow, PostgreSQL, MinIO, Grafana, Prometheus, and
+Loki — all open source, all doing the actual work here.
 
 ---
 

@@ -616,8 +616,8 @@ docker compose exec kafka bash
 ### Still Stuck?
 
 1. Check [README.md](../README.md) for setup instructions
-2. Review [architecture.md](architecture.md) for system design
-3. Look at [design_decisions.md](design_decisions.md) for technology rationale
+2. Review [ARCHITECTURE.md](../ARCHITECTURE.md) for system design
+3. Look at [DESIGN_DECISIONS.md](../DESIGN_DECISIONS.md) for technology rationale
 
 ---
 

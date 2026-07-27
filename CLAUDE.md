@@ -76,7 +76,10 @@ condensed into the Roadmap section below. Don't re-derive it — extend it.
 ```
 data_eng_project/
 ├── CLAUDE.md                     # ← you are here
-├── README.md                     # Public-facing project README
+├── README.md                     # Flagship public-facing README — overview, features, quick start
+├── ARCHITECTURE.md               # Full system diagram, table ownership, job/DAG detail
+├── DESIGN_DECISIONS.md           # Technology alternatives + pipeline-specific tradeoffs
+│                                  # (moved from docs/design_decisions.md — see §7)
 ├── RUNBOOK.md                    # Command-by-command first-run guide, real verified output
 ├── LICENSE                       # MIT
 ├── docker-compose.yml            # Full stack: core + obs + orchestration profiles
@@ -118,7 +121,7 @@ data_eng_project/
 ├── scripts/                      # health-check.ps1, validate_data.py (both fixed/working)
 ├── docs/
 │   ├── README.md                 # Doc hub — repaired (was corrupted mid-document)
-│   ├── design_decisions.md       # Alternatives-considered writeups — strong content, keep
+│   ├── images/                   # Screenshots/demo GIF — see images/README.md for what's expected
 │   └── troubleshooting.md
 ├── tests/
 │   ├── conftest.py               # Shared sys.path setup + session-scoped local SparkSession
@@ -132,6 +135,14 @@ data_eng_project/
 ---
 
 ## 2. System Architecture
+
+> **[ARCHITECTURE.md](ARCHITECTURE.md) is the canonical, public-facing version of this section**
+> (including a Mermaid diagram that renders on GitHub). What follows here is the same information
+> kept in this file too because it's annotated with internal status/verification notes
+> (✅/⚠️/❌/☠️, "confirmed live," etc.) that don't belong in a clean public reference. If you
+> update the architecture, **update both** — this is the one deliberate exception to the
+> single-source-of-truth rule in §7, made because the two files serve different audiences, not
+> because keeping them in sync is optional.
 
 ### Data Flow
 
@@ -342,8 +353,22 @@ even if uncommented). No Alertmanager yet (Medium roadmap).
 
 ## 7. Repository Conventions
 
-- Root-level Markdown is limited to `README.md`, `CLAUDE.md`, `LICENSE`. Everything else lives
-  under `docs/`.
+- **Root-level Markdown is for high-visibility, portfolio-facing docs**: `README.md` (flagship
+  overview), `ARCHITECTURE.md` (system design), `DESIGN_DECISIONS.md` (technology rationale),
+  `RUNBOOK.md` (first-run guide), `CLAUDE.md` (this file), `LICENSE`. This convention changed —
+  it used to restrict root to just README/CLAUDE.md/LICENSE, with everything else under `docs/`.
+  `DESIGN_DECISIONS.md` was moved from `docs/design_decisions.md` to root for exactly this reason
+  (recruiters and new readers look at the repo root first, not `docs/`). Everything else —
+  troubleshooting guides, screenshots, supporting material that isn't meant to be a first-click —
+  stays under `docs/`. Don't let root-level Markdown sprawl beyond these five; if you're adding a
+  sixth, ask whether it's really a new top-level concern or a section that belongs in one of the
+  existing five.
+- Every root-level doc that overlaps in subject with another must link to it rather than
+  duplicate its content — e.g. README's Quick Start links to RUNBOOK for full detail rather than
+  inlining it; RUNBOOK's "what was fixed" list is the canonical source, README/DESIGN_DECISIONS
+  reference it rather than re-deriving it. This is the same single-source-of-truth principle as
+  the table-ownership matrix, applied to documentation instead of Postgres tables — this repo has
+  already relearned, more than once, what duplicated sources of truth cost when they drift.
 - One-off/throwaway scripts do not get committed. If a script is useful long-term, it goes in
   `scripts/` with a comment header explaining when to run it and it must actually work.
 - DAG filenames match their DAG ID (`streammart_<name>` ↔ `<name>_dag.py`).
