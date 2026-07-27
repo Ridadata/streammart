@@ -2,14 +2,51 @@
 # Loki Configuration
 # Centralized log aggregation for StreamMart containers
 # ==============================================================================
+#
+# Rewritten for Loki 3.7.1 (the version `grafana/loki:latest` actually pulls —
+# confirmed via `docker run --rm grafana/loki:latest --version`). The previous
+# version of this file targeted a much older Loki release (boltdb-shipper
+# storage, schema v11, a top-level `query_config` block, `ingester.
+# max_streams_limit_per_user`) and failed to parse on container startup with
+# "field max_streams_limit_per_user not found in type ingester.Config" and
+# three similar errors — confirmed live, the container never started. Loki
+# has no compatibility shim for config this old; the schema genuinely changed.
+#
+# Structure follows Loki's own current reference config
+# (https://github.com/grafana/loki/blob/main/cmd/loki/loki-local-config.yaml),
+# adapted to this project's paths (the `loki-data` volume is mounted at
+# `/loki` — see docker-compose.yml) and retention/limits settings carried
+# over in intent from the old config where the new schema still supports them.
+#
+# If you bump the pinned Loki version in docker-compose.yml in the future,
+# re-check this file against Loki's release notes — this is exactly the kind
+# of drift that broke it the first time.
 
 auth_enabled: false
 
-ingester:
-  chunk_idle_period: 3m
-  max_chunk_age: 1h
-  max_streams_limit_per_user: 10000
-  chunk_retain_period: 1m
+server:
+  http_listen_port: 3100
+  grpc_listen_port: 9096
+  log_level: info
+
+common:
+  instance_addr: 127.0.0.1
+  path_prefix: /loki
+  storage:
+    filesystem:
+      chunks_directory: /loki/chunks
+      rules_directory: /loki/rules
+  replication_factor: 1
+  ring:
+    kvstore:
+      store: inmemory
+
+query_range:
+  results_cache:
+    cache:
+      embedded_cache:
+        enabled: true
+        max_size_mb: 100
 
 limits_config:
   max_cache_freshness_per_query: 10m
@@ -21,37 +58,13 @@ limits_config:
 schema_config:
   configs:
     - from: 2020-10-24
-      store: boltdb-shipper
+      store: tsdb
       object_store: filesystem
-      schema: v11
+      schema: v13
       index:
         prefix: index_
         period: 24h
 
-server:
-  http_listen_port: 3100
-  log_level: info
-
-storage_config:
-  boltdb_shipper:
-    active_index_directory: /loki/boltdb-shipper-active
-    cache_location: /loki/boltdb-shipper-cache
-    shared_store: filesystem
-  filesystem:
-    directory: /loki/chunks
-
-chunk_store_config:
-  max_look_back_period: 0s
-
 table_manager:
   retention_deletes_enabled: false
   retention_period: 0s
-
-# Query configuration
-query_config:
-  max_cache_freshness_per_query: 10m
-  cache_results: true
-  results_cache:
-    cache:
-      enable_fifo_cache: true
-      default_validity: 5m

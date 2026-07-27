@@ -367,9 +367,36 @@ jobs specifically — Structured Streaming tracks offsets via its own checkpoint
 `__consumer_offsets`. You'll see a `schema-registry` consumer group and nothing else. This is
 expected, not a misconfiguration — see `CLAUDE.md` §9 Medium roadmap for the real fix.
 
+### 8a. Verify Loki is actually ingesting logs
+
+`loki` has no `healthcheck` (see §12 for why — the image has no shell to run one in), so
+`docker compose ps` will just show `Up`, not `(healthy)`. That's correct, not a downgrade.
+Confirm it's actually working by querying real log lines back out:
+
+```bash
+curl -s "http://localhost:3100/loki/api/v1/label/container/values"
+```
+**Expected:** a JSON array of `/streammart-*` container names for everything currently running.
+
+```bash
+curl -s -G "http://localhost:3100/loki/api/v1/query_range" \
+  --data-urlencode 'query={container=~".+"}' --data-urlencode 'limit=3'
+```
+**Expected:** `"status":"success"` with a non-empty `result` array containing real log lines.
+
 ---
 
 ## 9. (Optional) Orchestration profile — Airflow
+
+**Do not run this alongside a fully-loaded `obs` profile for extended periods on a
+9-10 GB Docker allocation.** In validation, running core + obs + orchestration together for over
+an hour pushed real memory usage to ~9.1/9.64 GB (94.6%), which caused Kafka's health checks to
+start timing out and, separately, made `airflow-webserver` fail to start within its startup
+timeout. Neither was a config bug — stopping the `obs` profile's non-essential services
+(`docker compose --profile obs stop grafana prometheus kafka-exporter kafka-jmx-exporter loki
+promtail`, plus `docker stop streammart-pgadmin streammart-schema-registry streammart-kafka-ui`)
+brought Kafka back to `healthy` within seconds. If you want core + orchestration together for a
+while, stop `obs` first.
 
 ```bash
 docker compose --profile orchestration up -d
@@ -390,7 +417,14 @@ The webserver takes noticeably longer to become responsive than other services (
 ```bash
 for i in $(seq 1 20); do sleep 5; curl -s -o /dev/null -w "%{http_code}\n" http://localhost:8085/health; done
 ```
-**Expected:** `000` repeatedly, then `200` around t+75-90s.
+**Expected:** `000` repeatedly, then `200` around t+75-90s. Under real resource pressure this can
+take longer — the webserver's startup timeout is 240s (`AIRFLOW__WEBSERVER__WEB_SERVER_MASTER_TIMEOUT`,
+raised from Airflow's 120s default after a live crash under load), and it now has both a
+`restart: on-failure:3` policy and automatic stale-PID-file cleanup on every start, so a crash
+under transient load self-heals instead of needing a manual `docker compose up -d
+--force-recreate`. If it's still not responding after several minutes, check
+`docker logs streammart-airflow-webserver` and `docker stats` — this is almost always memory
+pressure (see the warning above this section), not a code problem.
 
 Confirm all 4 DAGs loaded with zero import errors:
 ```bash
@@ -423,13 +457,15 @@ live traffic:
 
 | Profile combination | Real usage measured | Fits in 9.64 GB? |
 |---|---|---|
-| Core only (17 services, incl. kafka-ui/pgadmin/schema-registry) | **~6.4 GB** | Yes, ~3.2 GB headroom |
-| Core + obs (26 services) | **~7.9 GB** | Yes, but tight (~1.7 GB headroom) |
-| Core + obs + orchestration (all 29 services) | Not validated simultaneously — stop `obs` before starting `orchestration` if RAM-constrained | Recommended: run in stages, not all three at once, on <12 GB |
+| Core only (17 services, incl. kafka-ui/pgadmin/schema-registry) | **~6.4 GB** (measured fresh) | Yes, ~3.2 GB headroom |
+| Core + obs (26 services) | **~7.9 GB** (measured fresh) | Yes, but tight (~1.7 GB headroom) |
+| Core + obs + orchestration (all 29 services), run for over an hour with real traffic | **~9.1 GB** (measured under sustained load — includes state growth in the Spark workers over time, not just cold-start usage) | **No** — caused Kafka health-check timeouts and an `airflow-webserver` startup failure, both confirmed to resolve within seconds of freeing ~1 GB by stopping `obs`. Don't run all three together for extended periods on 9-10 GB |
 
-If you have 12+ GB available, all three profiles together should fit comfortably. If you're
-resource-constrained like this validation run (9.64 GB), the practical approach is: run core +
-obs for dashboard work, or core + orchestration for DAG work, but not all three simultaneously.
+If you have 12+ GB available, all three profiles together should fit comfortably, though even
+then, watch usage over time — Spark's workers accumulate state (window/session tracking) and
+grow past their cold-start footprint the longer they run. If you're resource-constrained like
+this validation run (9.64 GB), the practical approach is: run core + obs for dashboard work, or
+core + orchestration for DAG work, but not all three simultaneously for long stretches.
 
 To skip non-essential dev tools and free ~1 GB on a tight core-only run:
 ```bash
@@ -466,6 +502,28 @@ so you know what "correct" behavior looks like and don't mistake a fixed bug for
    the connection-provisioning step in `airflow-init` was made idempotent (`connections delete`
    before `connections add`) since it previously failed with a nonzero exit on any second run
    against an already-initialized Airflow database.
+
+Found in a **follow-up session** testing the orchestration profile under sustained load
+(all 3 profiles running together for over an hour, ~9.1/9.64 GB in use):
+
+7. `airflow-webserver` crashed outright when gunicorn didn't report ready within the 120s
+   default startup timeout under memory pressure, and had no `restart:` policy to bring it back.
+   Worse, restarting the same (not recreated) container then failed with `Error: Already running
+   on PID N (or pid file ... is stale)` — the crashed process's pid file survived on the
+   container's writable layer. Fixed three ways: startup timeout raised to 240s, the container's
+   command now removes any stale pid file before every start, and both webserver and scheduler
+   got `restart: on-failure:3`.
+8. `config/loki/loki-config.yml` had never actually worked — its schema (boltdb-shipper, schema
+   v11, a top-level `query_config` block) targeted a Loki release roughly 3 majors behind what
+   `grafana/loki:latest` resolves to (confirmed: 3.7.1 via `docker run --rm grafana/loki:latest
+   --version`), and failed to parse on every startup attempt. Rewritten against Loki's current
+   reference config (tsdb store, schema v13).
+9. `loki`'s healthcheck (`wget ... || exit 1`) failed on every single attempt regardless of
+   actual health, because `grafana/loki:latest` ships a distroless-style image with no shell, no
+   wget, not even `ls` (confirmed via `docker exec`: `exec: "/bin/sh": stat /bin/sh: no such file
+   or directory`). Removed — nothing in this compose file depends on Loki's health condition
+   specifically, so this has no effect on startup ordering, only on a status label that was
+   permanently wrong either way.
 
 Also added missing `mem_limit`s to every previously-uncapped service (Kafka, Postgres, MinIO,
 Schema Registry, Kafka UI, pgAdmin, all 3 Airflow services) so resource usage is governed and

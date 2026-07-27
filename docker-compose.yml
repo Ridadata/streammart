@@ -622,6 +622,13 @@ services:
       AIRFLOW__CORE__LOAD_EXAMPLES: 'false'
       AIRFLOW__CORE__FERNET_KEY: ${AIRFLOW__CORE__FERNET_KEY}
       AIRFLOW__WEBSERVER__EXPOSE_CONFIG: 'true'
+      # Default is 120s. Confirmed live on a resource-constrained host: under
+      # memory/CPU pressure from other services, gunicorn's workers can take
+      # longer than that to report ready, and the master gives up
+      # ("No response from gunicorn master within 120 seconds") and shuts
+      # the whole webserver down. This doesn't fix the underlying resource
+      # pressure, but it stops a transient slow start from being fatal.
+      AIRFLOW__WEBSERVER__WEB_SERVER_MASTER_TIMEOUT: '240'
       AIRFLOW_UID: ${AIRFLOW_UID}
       # pipeline_health_check_dag.py needs boto3 to inspect MinIO partitions.
       # Stock apache/airflow images don't include it; this is the documented
@@ -638,7 +645,16 @@ services:
       - airflow-logs:/opt/airflow/logs
     networks:
       - streammart-network
-    command: webserver
+    # Confirmed live: when the webserver process dies (e.g. the master-timeout
+    # case above) without the container itself being recreated, Airflow's own
+    # airflow-webserver.pid file survives on the container's writable layer
+    # and blocks the next `airflow webserver` invocation with "Already running
+    # on PID N (or pid file ... is stale)". Removing it before start makes an
+    # automatic restart (see restart: policy) actually self-heal instead of
+    # needing a manual `docker compose up -d --force-recreate`.
+    entrypoint: /bin/bash
+    command: -c "rm -f /opt/airflow/airflow-webserver.pid; exec airflow webserver"
+    restart: on-failure:3
     mem_limit: 1g
     memswap_limit: 1g
 
@@ -668,6 +684,7 @@ services:
     networks:
       - streammart-network
     command: scheduler
+    restart: on-failure:3
     mem_limit: 1g
     memswap_limit: 1g
 
@@ -801,11 +818,19 @@ services:
     command: -config.file=/etc/loki/local-config.yml
     networks:
       - streammart-network
-    healthcheck:
-      test: wget --quiet --tries=1 --spider http://localhost:3100/loki/api/v1/status || exit 1
-      interval: 10s
-      timeout: 5s
-      retries: 5
+    # No healthcheck: confirmed live that grafana/loki:latest ships a truly
+    # minimal image containing only the `loki` binary itself (entrypoint
+    # /usr/bin/loki, non-root user) — no /bin/sh, no wget, no ls, nothing a
+    # CMD-SHELL healthcheck can run. The previous wget-based check therefore
+    # failed structurally on every single attempt regardless of whether Loki
+    # was actually healthy (confirmed: it was serving real queries correctly
+    # the entire time it showed "unhealthy"). Nothing in this compose file
+    # depends on Loki's health status specifically (promtail only waits for
+    # it to start, not to report healthy), so removing this has no effect on
+    # startup ordering — it only removes a permanently-misleading status.
+    # If you need real health monitoring for Loki, query
+    # http://localhost:3100/loki/api/v1/status from *outside* the container
+    # instead (e.g. from Promtail, or an external check).
 
   promtail:
     image: grafana/promtail:latest

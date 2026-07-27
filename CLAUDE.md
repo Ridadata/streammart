@@ -52,12 +52,13 @@ this file exists).
 | Airflow: data_quality | ✅ LIVE-VERIFIED | Loads with zero import errors under real Airflow 2.8.0 |
 | Airflow: pipeline_health_check | ✅ LIVE-VERIFIED | Loads with zero import errors under real Airflow 2.8.0 |
 | Airflow init/connection provisioning | ✅ LIVE-VERIFIED (after a fix) | First run: confirmed `streammart_postgres` connection auto-created. Second run (simulating a restart against an existing Airflow DB): `airflow-init` exited 1 because `airflow connections add` fails on an existing connection — a real idempotency bug. Fixed with `connections delete ... ; connections add ...`; also fixed a missing `AIRFLOW__CORE__FERNET_KEY` (confirmed live: connection passwords were being stored unencrypted without it) |
+| Airflow webserver resilience | ✅ LIVE-VERIFIED (after a fix) | Found in a later session running all 3 profiles simultaneously under real memory pressure (~9.1/9.64 GB in use): gunicorn didn't report ready within the 120s default and the webserver self-shut-down; it also had no `restart:` policy, so it stayed dead. Worse: restarting it (without `--force-recreate`) hit `Error: Already running on PID N (or pid file ... is stale)` because the crashed process's pid file survived on the container's writable layer — reproduced twice. Fixed three ways: `AIRFLOW__WEBSERVER__WEB_SERVER_MASTER_TIMEOUT` raised 120s→240s, `command:` now removes the stale pid file before every start, and `restart: on-failure:3` added to both webserver and scheduler. Confirmed a plain `docker compose up -d airflow-webserver` (same container, not recreated) now comes up clean |
 | `sql/maintenance.sql` (was `rollups.sql`) | ✅ LIVE-VERIFIED (after a fix) | A YAML-folding bug produced a literal `syntax error: unexpected "||"` on every run, confirmed via live container logs — the multi-line `psql ... || echo ...` fallback must stay on one physical line under a `>` folded block scalar. Fixed; confirmed running clean (`DELETE`/`INSERT` heartbeats every 60s) |
 | PostgreSQL schema | ✅ LIVE-VERIFIED | Both `streammart` and `airflow` databases, all 9 real tables, no `events_raw`, confirmed against a freshly initialized volume |
 | MinIO data lake | ✅ LIVE-VERIFIED | Bucket creation and real Parquet writes both confirmed |
 | Grafana dashboard | ✅ LIVE-VERIFIED (after a fix) | Datasources provisioned and healthy (`Database Connection OK`, `Successfully queried the Prometheus API`), dashboard loads, all 4 fixed panel queries execute without SQL errors. Separately found: `GF_INSTALL_PLUGINS: redis-datasource` (this project has no Redis anywhere) was costing 50+ seconds of startup time downloading an unused plugin from grafana.com — removed, startup dropped to ~6s |
 | Prometheus | ✅ LIVE-VERIFIED | All 9 scrape targets confirmed `up`: kafka-exporter, kafka-jmx, minio, postgres, prometheus, spark-master, spark-applications, spark-worker×2. JMX exporter confirmed returning 7705 real metrics after the `hostPort` fix (previously had nothing to poll and returned none) |
-| Loki / Promtail | ✅ (code fixed, not independently re-verified this pass) | `pipeline_stages` nesting bug fixed; container starts without the earlier config-validation failure |
+| Loki / Promtail | ✅ LIVE-VERIFIED (after 2 more fixes) | `pipeline_stages` nesting bug fixed. Two further live-only bugs found in a later session: (1) `config/loki/loki-config.yml` targeted a schema roughly 3 major versions older than what `grafana/loki:latest` actually pulls (confirmed: `docker run --rm grafana/loki:latest --version` → 3.7.1) — rewritten against Loki's current reference config (tsdb store, schema v13, `common`/`query_range` blocks); (2) the loki service's healthcheck (`wget ... || exit 1`) failed on every single attempt regardless of actual health, because `grafana/loki:latest` ships a distroless-style image with no shell, no wget, not even `ls` — confirmed via `docker exec` (`exec: "/bin/sh": stat /bin/sh: no such file or directory`). Removed; nothing depends on Loki's health condition specifically. Confirmed querying real log lines back out of Loki after both fixes |
 | Schema Registry | ☠️ | Still deployed, still unused — wire format is JSON, Avro schemas unreferenced (Medium roadmap). Confirmed it does start healthy (~45s startup, transient "unhealthy" during that window is normal, not a bug) |
 | DLQ (`events.dlq`) | ☠️ | Still decorative — unchanged this session (Medium roadmap) |
 | Tests | ✅ | Real suite: unit tests for all 4 Spark jobs' pure transforms, DAG-integrity tests (cycles, regression guards for the exact historical bugs), integration smoke tests. Local execution still blocked by this dev machine's PySpark-on-Windows/Airflow-version mismatch (see §10) — **not** blocked in the live Docker validation, which exercises the real production code paths directly and is arguably stronger evidence than the unit tests would have been |
@@ -502,6 +503,33 @@ exercised directly against a real multi-hour Docker run, which is stronger evide
 tests would have provided even if they'd passed. See RUNBOOK.md for the full command-by-command
 record, including real timings (Spark cluster healthy in ~14s, all 4 jobs registered by ~156s,
 core profile using ~6.4 GB / core+obs ~7.9 GB of real RAM) and real output.
+
+**Follow-up session — orchestration profile under real load.** A later session picked up where
+this one left off: the user had all three profiles (core + obs + orchestration) running
+simultaneously for an extended period, which is exactly the configuration RUNBOOK.md §11 advises
+against on a 9.64 GB machine. Real memory usage had climbed to ~9.1/9.64 GB (94.6%). This
+surfaced two categories of problem, and it's worth keeping them conceptually separate:
+
+- **Not bugs, just capacity**: Kafka's health checks were timing out and topic-creation calls
+  that normally take milliseconds were taking minutes — confirmed as pure resource starvation,
+  not misconfiguration, because Kafka returned to `healthy` within seconds of stopping the `obs`
+  profile to free ~1 GB. No code change fixes this; the fix is not running all three profiles at
+  once on this hardware, exactly as already documented.
+- **Real bugs, found because of the load** (fixed): `airflow-webserver` crashed outright once
+  gunicorn didn't respond within the 120s default startup timeout, and had no `restart:` policy
+  to recover; and a plain restart of the same (not recreated) container then hit a stale
+  `airflow-webserver.pid` file left by the crashed process. Separately, `loki` had never
+  successfully started in this repo's history — its config schema was written for a Loki version
+  roughly 3 majors behind what `grafana/loki:latest` actually resolves to (3.7.1), and its
+  healthcheck used `wget` in an image that has no shell or wget at all. Both are now fixed and
+  live-verified: `airflow-webserver` recovers cleanly from both a crash and a plain restart, and
+  Loki starts, ingests, and serves real queries (checked by pulling actual log lines back out for
+  16 running containers).
+
+The practical lesson for future sessions: **a stack that works cleanly at low load can still have
+real, undiscovered bugs that only surface under the sustained resource pressure of running
+everything at once.** Treat "validated" as scoped to the conditions it was validated under, not
+as a permanent property of the code.
 
 **Technical debt still accepted for now:** Kafka single broker / RF=1 (documented limitation, not
 a bug); Schema Registry running but unused (Medium roadmap); DLQ topic exists but isn't fully
