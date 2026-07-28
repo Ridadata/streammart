@@ -36,12 +36,19 @@ It's a **27-service** Docker Compose stack — Kafka, Spark (a real 2-worker clu
 `local[*]`), PostgreSQL, MinIO, Airflow, Grafana, and Prometheus/Loki — designed to be read
 end-to-end in an afternoon and run end-to-end in one command.
 
+<div align="center">
+
+![StreamMart Architecture](docs/images/architecture-diagram.svg)
+
+<sub>Hand-built diagram, kept in sync with the actual pipeline — not a stock illustration. Full detail: <a href="ARCHITECTURE.md">ARCHITECTURE.md</a></sub>
+
+</div>
+
 <table align="center">
 <tr>
-<td align="center" width="140">🖼️<br/><b>Architecture</b><br/><sub>Mermaid diagram below</sub></td>
-<td align="center" width="140">📊<br/><b>Dashboard</b><br/><sub><a href="docs/images/README.md">add screenshot</a></sub></td>
-<td align="center" width="140">🌀<br/><b>Airflow DAGs</b><br/><sub><a href="docs/images/README.md">add screenshot</a></sub></td>
-<td align="center" width="140">🎬<br/><b>Demo GIF</b><br/><sub><a href="docs/images/README.md">add recording</a></sub></td>
+<td align="center" width="180">📊<br/><b>Dashboard</b><br/><sub><a href="docs/images/README.md">add screenshot</a></sub></td>
+<td align="center" width="180">🌀<br/><b>Airflow DAGs</b><br/><sub><a href="docs/images/README.md">add screenshot</a></sub></td>
+<td align="center" width="180">🎬<br/><b>Demo GIF</b><br/><sub><a href="docs/images/README.md">add recording</a></sub></td>
 </tr>
 </table>
 
