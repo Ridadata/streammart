@@ -29,6 +29,16 @@
 
 ---
 
+<div align="center">
+
+![StreamMart Demo](docs/images/Streamart.gif)
+
+<sub>The full stack from a cold start — <code>docker compose up -d</code> through the first real rows landing in Postgres and the Grafana dashboard updating live.</sub>
+
+</div>
+
+---
+
 ## Overview
 
 StreamMart simulates a mid-size e-commerce platform's clickstream — pageviews, product clicks,
@@ -69,12 +79,6 @@ end-to-end in an afternoon and run end-to-end in one command.
 <sub><b>MinIO Console</b> — partitioned Parquet data lake</sub>
 
 </div>
-
-<!--
-  A demo GIF is the one capture still not embedded — see docs/images/README.md
-  for what to record and where to drop it. Once added, uncomment:
-  ![Demo](docs/images/demo.gif)
--->
 
 ---
 
