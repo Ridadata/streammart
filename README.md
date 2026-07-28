@@ -19,6 +19,12 @@
 
 [Quick Start](#-quick-start) · [Architecture](ARCHITECTURE.md) · [Runbook](RUNBOOK.md) · [Design Decisions](DESIGN_DECISIONS.md) · [Roadmap](#-roadmap)
 
+<div align="center">
+
+![StreamMart](docs/images/hero-banner.png)
+
+</div>
+
 </div>
 
 ---
