@@ -52,18 +52,15 @@ end-to-end in an afternoon and run end-to-end in one command.
 
 <table align="center">
 <tr>
-<td align="center" width="180">📊<br/><b>Dashboard</b><br/><sub><a href="docs/images/README.md">add screenshot</a></sub></td>
-<td align="center" width="180">🌀<br/><b>Airflow DAGs</b><br/><sub><a href="docs/images/README.md">add screenshot</a></sub></td>
-<td align="center" width="180">🎬<br/><b>Demo GIF</b><br/><sub><a href="docs/images/README.md">add recording</a></sub></td>
+<td align="center" width="220"><img src="docs/images/dashboard-overview.png" width="200"/><br/><sub><b>Grafana Dashboard</b></sub></td>
+<td align="center" width="220"><img src="docs/images/airflow-dags.png" width="200"/><br/><sub><b>Airflow DAGs</b></sub></td>
+<td align="center" width="220"><img src="docs/images/minio-console.png" width="200"/><br/><sub><b>MinIO Console</b></sub></td>
 </tr>
 </table>
 
 <!--
-  Screenshots and a demo GIF are intentionally not embedded yet — see
-  docs/images/README.md for exactly what to capture and where to drop it.
-  Once added, uncomment and fill in:
-  ![Grafana Dashboard](docs/images/dashboard-overview.png)
-  ![Airflow DAGs](docs/images/airflow-dags.png)
+  A demo GIF is the one capture still not embedded — see docs/images/README.md
+  for what to record and where to drop it. Once added, uncomment:
   ![Demo](docs/images/demo.gif)
 -->
 
