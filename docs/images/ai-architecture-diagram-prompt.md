@@ -1,13 +1,14 @@
 # AI Image Generation Prompt — Technical Architecture Diagram
 
-This supersedes the hand-built `architecture-diagram.svg` currently embedded in `README.md`.
-That SVG is accurate but visually flat; this prompt is for a polished, professional-looking
-architecture diagram in the style used by real engineering blogs (Netflix Tech Blog, Uber
-Engineering, Airbnb Engineering, the AWS Architecture Icon library) — recognizable technology
-logos, clear left-to-right data flow, labeled arrows describing what actually moves between each
-hop. Generate with GPT Image, Midjourney (v6+), or similar, then drop the result at
-`docs/images/architecture-diagram.png` and swap it in for the SVG in `README.md` (same embed
-location — see bottom of this file).
+This is the prompt used to generate `docs/images/architecture-diagram.png`, which is already
+embedded in `README.md` (it replaced an earlier hand-built SVG that read as visually flat).
+Kept here so the diagram can be regenerated or iterated on later — a polished,
+professional-looking architecture diagram in the style used by real engineering blogs (Netflix
+Tech Blog, Uber Engineering, Airbnb Engineering, the AWS Architecture Icon library) —
+recognizable technology logos, clear left-to-right data flow, labeled arrows describing what
+actually moves between each hop. Generate with GPT Image, Midjourney (v6+), or similar, then
+drop the result at `docs/images/architecture-diagram.png` (same embed location in `README.md` —
+see bottom of this file).
 
 ## The prompt
 
@@ -72,9 +73,10 @@ location — see bottom of this file).
   `ARCHITECTURE.md` and `CLAUDE.md` §2 exactly: simulator → Kafka → Spark (4 jobs) → MinIO +
   Postgres → Airflow → Prometheus/Grafana observability layer underneath.
 
-## Once you have it
+## If you regenerate it
 
-Replace the current SVG embed in `README.md` (search for `architecture-diagram.svg`) with:
+`README.md` already embeds it at `docs/images/architecture-diagram.png`, so a regenerated image
+just needs to overwrite that file (same filename, same embed block — no README edit needed):
 
 ```markdown
 <div align="center">
@@ -87,5 +89,5 @@ Replace the current SVG embed in `README.md` (search for `architecture-diagram.s
 ```
 
 Keep the file under ~1MB. If the generated image has any inaccuracies (wrong logo, wrong flow
-direction, a missing hop), regenerate rather than hand-editing — a raster image can't be
-patched the way the SVG could.
+direction, a missing hop), regenerate rather than hand-editing — a raster image can't be patched
+the way an SVG could.

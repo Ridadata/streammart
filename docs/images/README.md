@@ -5,9 +5,9 @@ project would rather show an honest placeholder than a screenshot staged to look
 real system. If you're adding these, here's exactly what's expected and where it goes.
 
 **Already done:**
-- `architecture-diagram.svg` — a hand-built technical diagram. A follow-up prompt to regenerate
-  it as a logo-accurate AI image is in [`ai-architecture-diagram-prompt.md`](ai-architecture-diagram-prompt.md)
-  (the current SVG reads as visually flat; not yet replaced).
+- `architecture-diagram.png` — an AI-generated, logo-accurate technical diagram (replaced an
+  earlier hand-built SVG that read as visually flat), generated from
+  [`ai-architecture-diagram-prompt.md`](ai-architecture-diagram-prompt.md).
 - `hero-banner.png` — an AI-generated abstract cover image, embedded under the badge row.
   Generated from [`ai-hero-banner-prompt.md`](ai-hero-banner-prompt.md).
 - `dashboard-overview.png`, `airflow-dags.png`, `minio-console.png` — real screenshots of the

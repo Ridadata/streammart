@@ -17,7 +17,7 @@
 [![PostgreSQL](https://img.shields.io/badge/PostgreSQL-15-4169E1?logo=postgresql&logoColor=white)](sql/init_postgres.sql)
 [![Docker](https://img.shields.io/badge/Docker-Compose-2496ED?logo=docker&logoColor=white)](docker-compose.yml)
 
-[Quick Start](#-quick-start) · [Architecture](ARCHITECTURE.md) · [Runbook](RUNBOOK.md) · [Design Decisions](DESIGN_DECISIONS.md) · [Roadmap](#-roadmap)
+[Quick Start](#quick-start) · [Architecture](ARCHITECTURE.md) · [Runbook](RUNBOOK.md) · [Design Decisions](DESIGN_DECISIONS.md) · [Roadmap](#roadmap)
 
 <div align="center">
 
@@ -44,19 +44,31 @@ end-to-end in an afternoon and run end-to-end in one command.
 
 <div align="center">
 
-![StreamMart Architecture](docs/images/architecture-diagram.svg)
+![StreamMart Architecture](docs/images/architecture-diagram.png)
 
-<sub>Hand-built diagram, kept in sync with the actual pipeline — not a stock illustration. Full detail: <a href="ARCHITECTURE.md">ARCHITECTURE.md</a></sub>
+<sub>Full detail: <a href="ARCHITECTURE.md">ARCHITECTURE.md</a></sub>
 
 </div>
 
-<table align="center">
-<tr>
-<td align="center" width="220"><img src="docs/images/dashboard-overview.png" width="200"/><br/><sub><b>Grafana Dashboard</b></sub></td>
-<td align="center" width="220"><img src="docs/images/airflow-dags.png" width="200"/><br/><sub><b>Airflow DAGs</b></sub></td>
-<td align="center" width="220"><img src="docs/images/minio-console.png" width="200"/><br/><sub><b>MinIO Console</b></sub></td>
-</tr>
-</table>
+<div align="center">
+
+<img src="docs/images/dashboard-overview.png" width="900"/>
+
+<sub><b>Grafana Dashboard</b> — live operational metrics</sub>
+
+<br/><br/>
+
+<img src="docs/images/airflow-dags.png" width="900"/>
+
+<sub><b>Airflow DAGs</b> — nightly batch reconciliation</sub>
+
+<br/><br/>
+
+<img src="docs/images/minio-console.png" width="900"/>
+
+<sub><b>MinIO Console</b> — partitioned Parquet data lake</sub>
+
+</div>
 
 <!--
   A demo GIF is the one capture still not embedded — see docs/images/README.md
@@ -66,18 +78,18 @@ end-to-end in an afternoon and run end-to-end in one command.
 
 ---
 
-## ✨ Key Features
+## Key Features
 
 | | |
 |---|---|
-| 🔀 **Two independent streaming granularities** | `metrics_1min` and `metrics_5min` are each computed directly from the raw Kafka stream — not one derived from the other, because summing pre-aggregated approximate-distinct counts across windows is mathematically wrong. See [why](DESIGN_DECISIONS.md#why-metrics_5min-is-computed-independently-not-rolled-up-from-metrics_1min). |
-| 🔒 **Single-writer-per-table discipline** | Every Postgres table has exactly one process allowed to write to it — enforced by convention and documented in a table-ownership matrix, after an earlier version of this pipeline learned the hard way what happens without one. |
-| ⏱️ **Honest session windows** | User sessions use Spark's `session_window` (30-min inactivity gap) instead of a tumbling window that would split real sessions at arbitrary boundaries — and the README tells you the real cost: sessions land 40-70 minutes after their last event, by design, not by bug. |
-| 🔁 **Idempotent everywhere** | Every streaming write path uses `psycopg2` + `ON CONFLICT DO UPDATE`, not Spark's JDBC sink — because JDBC's `append` mode has no upsert story, and every job here can legitimately re-emit a window after a restart. |
-| 🛡️ **Bounded state, on purpose** | Every windowed aggregation groups by a real `window()`/`session_window()` column, not a derived date column — the one thing that lets Spark's watermark actually evict old state instead of growing memory forever. |
-| 📈 **Full observability, not a demo of it** | 9 real Prometheus scrape targets (Kafka JMX, Kafka consumer lag, MinIO, Postgres, Spark master/worker/applications via its built-in PrometheusServlet), a 9-panel Grafana dashboard, and centralized logs via Loki — all confirmed live, not just configured. |
-| 🧪 **Live-validated, not just unit-tested** | 36 automated tests, plus a documented multi-hour live validation that found and fixed 9 real bugs invisible to code review — including one in the Spark job an earlier audit called "the one that worked correctly." See [what was actually found](RUNBOOK.md#12-what-was-fixed-to-make-this-runbook-possible). |
-| 📝 **A runbook with real output, not invented examples** | [RUNBOOK.md](RUNBOOK.md) shows the actual command output from an actual run — actual timings (Spark cluster healthy in ~14s, all 4 jobs registered by ~156s), actual measured memory (~6.4 GB core / ~7.9 GB core+obs), not estimates. |
+| **Two independent streaming granularities** | `metrics_1min` and `metrics_5min` are each computed directly from the raw Kafka stream — not one derived from the other, because summing pre-aggregated approximate-distinct counts across windows is mathematically wrong. See [why](DESIGN_DECISIONS.md#why-metrics_5min-is-computed-independently-not-rolled-up-from-metrics_1min). |
+| **Single-writer-per-table discipline** | Every Postgres table has exactly one process allowed to write to it — enforced by convention and documented in a table-ownership matrix, after an earlier version of this pipeline learned the hard way what happens without one. |
+| **Honest session windows** | User sessions use Spark's `session_window` (30-min inactivity gap) instead of a tumbling window that would split real sessions at arbitrary boundaries — and the README tells you the real cost: sessions land 40-70 minutes after their last event, by design, not by bug. |
+| **Idempotent everywhere** | Every streaming write path uses `psycopg2` + `ON CONFLICT DO UPDATE`, not Spark's JDBC sink — because JDBC's `append` mode has no upsert story, and every job here can legitimately re-emit a window after a restart. |
+| **Bounded state, on purpose** | Every windowed aggregation groups by a real `window()`/`session_window()` column, not a derived date column — the one thing that lets Spark's watermark actually evict old state instead of growing memory forever. |
+| **Full observability, not a demo of it** | 9 real Prometheus scrape targets (Kafka JMX, Kafka consumer lag, MinIO, Postgres, Spark master/worker/applications via its built-in PrometheusServlet), a 9-panel Grafana dashboard, and centralized logs via Loki — all confirmed live, not just configured. |
+| **Live-validated, not just unit-tested** | 36 automated tests, plus a documented multi-hour live validation that found and fixed 9 real bugs invisible to code review — including one in the Spark job an earlier audit called "the one that worked correctly." See [what was actually found](RUNBOOK.md#12-what-was-fixed-to-make-this-runbook-possible). |
+| **A runbook with real output, not invented examples** | [RUNBOOK.md](RUNBOOK.md) shows the actual command output from an actual run — actual timings (Spark cluster healthy in ~14s, all 4 jobs registered by ~156s), actual measured memory (~6.4 GB core / ~7.9 GB core+obs), not estimates. |
 
 ---
 
@@ -108,7 +120,7 @@ settings: **[ARCHITECTURE.md](ARCHITECTURE.md)**.
 
 ---
 
-## 🚀 Quick Start
+## Quick Start
 
 Get the core pipeline running in under 2 minutes of commands (the Spark jobs take a few minutes
 longer to finish downloading dependencies and start processing — see
@@ -165,7 +177,7 @@ for exact numbers and a reduced-footprint command if you're constrained.
 
 ---
 
-## 📡 Operational Highlights
+## Operational Highlights
 
 <table>
 <tr>
@@ -200,7 +212,7 @@ confirmed `up`, including Spark's own PrometheusServlet metrics.
 
 ---
 
-## 📊 Project Metrics
+## Project Metrics
 
 <div align="center">
 
@@ -249,7 +261,7 @@ tries to only make the second one.
 
 ---
 
-## 🗺️ Roadmap
+## Roadmap
 
 **Done:** every Critical item from the original audit; 9 of 10 High-priority items; a full live
 validation pass that found and fixed 9 real bugs across Spark, Airflow, and the observability
