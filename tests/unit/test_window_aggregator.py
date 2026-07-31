@@ -61,9 +61,9 @@ class TestComputeWindowedAggregations:
         result = compute_windowed_aggregations(df, "1 minute", "2 minutes").collect()
         by_type = {r.event_type: r for r in result}
 
-        assert by_type["pageview"].count == 2
+        assert by_type["pageview"]["count"] == 2
         assert by_type["pageview"].unique_sessions == 1
-        assert by_type["purchase"].count == 1
+        assert by_type["purchase"]["count"] == 1
         assert by_type["purchase"].unique_users == 1
 
     def test_1min_and_5min_windows_bucket_the_same_events_differently(self, spark):
@@ -85,7 +85,7 @@ class TestComputeWindowedAggregations:
 
         assert len(result_1min) == 2  # two separate 1-minute windows
         assert len(result_5min) == 1  # same 5-minute window
-        assert result_5min[0].count == 2
+        assert result_5min[0]["count"] == 2
 
     def test_unique_sessions_deduplicates_within_a_window(self, spark):
         base = datetime(2026, 6, 15, 10, 0, 5)
@@ -98,5 +98,5 @@ class TestComputeWindowedAggregations:
 
         result = compute_windowed_aggregations(df, "1 minute", "2 minutes").collect()[0]
 
-        assert result.count == 3
+        assert result["count"] == 3
         assert result.unique_sessions == 1
