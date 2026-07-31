@@ -17,10 +17,10 @@ IDEMPOTENCY:
 - No state changes across reruns
 
 FIXES IN THIS REWRITE (see CLAUDE.md roadmap):
-- Postgres connection id was 'postgres_default' (never provisioned) in some
+- Postgres connection id was set to a non-provisioned default in some
   tasks; now everything uses 'streammart_postgres', the one connection
   airflow-init actually creates.
-- check_data_quality_metrics queried session_summary.is_converted, which
+- check_data_quality_metrics queried a non-existent converted-flag column, which
   doesn't exist — the real column is `converted`.
 - check_session_data_volume's 10-minute staleness threshold guaranteed a
   false "stagnant" warning on every hourly run once session_tracker.py moved
@@ -253,7 +253,7 @@ def check_data_quality_metrics():
     """Validate key data quality metrics.
 
     Note the real column is `converted` (BOOLEAN) — the original version of
-    this check queried a nonexistent `is_converted` column and always failed.
+    this check queried a nonexistent converted-flag column and always failed.
     """
     try:
         hook = PostgresHook(postgres_conn_id=POSTGRES_CONN_ID)

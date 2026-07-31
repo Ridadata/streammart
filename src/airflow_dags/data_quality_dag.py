@@ -27,7 +27,7 @@ DATA QUALITY DIMENSIONS:
 SCHEMA NOTE (why this file was rewritten):
 The original version of this DAG queried metrics_1min.timestamp,
 metrics_1min.properties, and metrics_1min.session_id — none of which exist.
-Those columns belonged to an `events_raw` table that was drafted in
+Those columns belonged to a raw-events table draft that was drafted in
 init_postgres.sql but never actually created (raw events live in MinIO, not
 Postgres — see src/spark_jobs/raw_event_writer.py). Every check below is
 written against the real schema: metrics_1min, session_summary,
