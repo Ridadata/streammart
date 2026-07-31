@@ -21,7 +21,8 @@ avro-python3==1.10.2
 
 # Database Clients
 psycopg2-binary==2.9.9
-SQLAlchemy==2.0.25
+# Airflow 2.8.x requires SQLAlchemy < 2.0
+SQLAlchemy==1.4.54
 
 # Object Storage
 minio==7.2.3
