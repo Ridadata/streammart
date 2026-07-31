@@ -34,7 +34,7 @@ its own execution date.
 SCHEMA NOTE (why this file was rewritten):
 The original version queried metrics_1min.timestamp / .properties /
 .session_id, none of which exist — that was written against a
-never-created `events_raw` table. The real source for per-session revenue
+never-created raw-events table draft. The real source for per-session revenue
 and conversion data is session_summary (written by session_tracker.py),
 which is what this version uses.
 """
