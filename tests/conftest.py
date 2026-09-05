@@ -13,7 +13,7 @@ session_tracker.py, revenue_aggregator.py, raw_event_writer.py) read
 required config (POSTGRES_PASSWORD, MINIO_ACCESS_KEY, MINIO_SECRET_KEY) at
 *import* time and raise RuntimeError immediately if missing — intentional,
 so a misconfigured deployment fails loudly instead of connecting with
-useless defaults (see CLAUDE.md coding standards). Unit tests only exercise
+useless defaults (see ENGINEERING.md coding standards). Unit tests only exercise
 the pure DataFrame transform functions, never the actual Postgres/MinIO
 connections, so we set harmless dummy values before any test module can
 trigger those imports.

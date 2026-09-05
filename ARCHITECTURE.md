@@ -3,7 +3,7 @@
 Deep technical reference for StreamMart. If you just want to run the thing, see
 [RUNBOOK.md](RUNBOOK.md). If you want the reasoning behind specific choices, see
 [DESIGN_DECISIONS.md](DESIGN_DECISIONS.md). This document is "what the system does and how the
-pieces fit," kept in sync with the actual code — see [CLAUDE.md](CLAUDE.md) for the
+pieces fit," kept in sync with the actual code — see [ENGINEERING.md](ENGINEERING.md) for the
 per-component verification status if you want to know exactly how confident to be in any given
 claim below.
 
@@ -294,7 +294,7 @@ sink (`config/spark/metrics.properties`), not an external agent.
 > Kafka's `__consumer_offsets` — confirmed live (only a `schema-registry` consumer group shows
 > up). Real lag visibility for these jobs would need a `StreamingQueryListener`-based offset
 > committer or reading each job's checkpoint offset log directly. Tracked in
-> [CLAUDE.md](CLAUDE.md)'s roadmap.
+> [ENGINEERING.md](ENGINEERING.md)'s roadmap.
 
 ---
 
@@ -321,7 +321,7 @@ streammart/
 ├── ARCHITECTURE.md           # ← you are here
 ├── DESIGN_DECISIONS.md       # Technology choices and pipeline-specific tradeoffs
 ├── RUNBOOK.md                 # Command-by-command first-run guide, real verified output
-├── CLAUDE.md                  # Engineering memory: status, roadmap, coding standards
+├── ENGINEERING.md             # Engineering memory: status, roadmap, coding standards
 ├── src/
 │   ├── simulator/              # Event generator (Faker-based clickstream)
 │   ├── spark_jobs/             # 4 PySpark Structured Streaming jobs
@@ -359,4 +359,4 @@ streammart/
 - **No benchmarks published yet**: throughput/latency numbers under load haven't been measured and published.
 - **Alertmanager**: Prometheus is scraping real metrics; alerting rules on top of it are the one open High-priority roadmap item.
 
-Full, continuously-updated status and roadmap: [CLAUDE.md](CLAUDE.md).
+Full, continuously-updated status and roadmap: [ENGINEERING.md](ENGINEERING.md).

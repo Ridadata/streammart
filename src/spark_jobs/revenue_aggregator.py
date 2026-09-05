@@ -18,7 +18,7 @@ REAL-WORLD USAGE:
 - Stripe provides real-time transaction volumes
 
 SCOPE NOTE:
-This job is the sole writer of `product_performance` (see CLAUDE.md table-ownership
+This job is the sole writer of `product_performance` (see ENGINEERING.md table-ownership
 matrix). It intentionally does not also compute a separate hourly/global revenue
 figure — `daily_revenue` is owned exclusively by the Airflow `daily_summary` DAG
 (the authoritative end-of-day batch layer), and having this streaming job write to

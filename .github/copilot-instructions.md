@@ -37,11 +37,11 @@ The pipeline ingests raw events from a generator, processes them through a serie
 
 - `docker-compose.yml`: The master file that defines all services, their configurations, and their relationships. This is the single source of truth for the entire stack.
 - `.env`: Contains default environment variables for configuring services, such as event rates, memory limits, and connection strings.
-- `sql/`: Contains `init_postgres.sql` (schema DDL) and `maintenance.sql` (DQ heartbeat + retention, run every 60s by the `postgres-maintenance` service — this file used to be called `rollups.sql`, see CLAUDE.md for why it was renamed and trimmed down).
+- `sql/`: Contains `init_postgres.sql` (schema DDL) and `maintenance.sql` (DQ heartbeat + retention, run every 60s by the `postgres-maintenance` service — this file used to be called `rollups.sql`, see ENGINEERING.md for why it was renamed and trimmed down).
 - `src/spark_jobs/`: The four PySpark Structured Streaming jobs (`raw_event_writer.py`, `window_aggregator.py`, `session_tracker.py`, `revenue_aggregator.py`), mounted into the Spark containers and submitted via `spark-submit` per the commands in `docker-compose.yml`.
 - `src/airflow_dags/`: The four Airflow DAGs (batch reconciliation, daily summary, data quality, pipeline health check).
 - `docs/`: Contains all project documentation, including design decisions and troubleshooting guides.
-- `CLAUDE.md`: Authoritative architecture reference, table-ownership matrix, coding standards, and roadmap. Read it before making non-trivial changes.
+- `ENGINEERING.md`: Authoritative architecture reference, table-ownership matrix, coding standards, and roadmap. Read it before making non-trivial changes.
 
 ## 6. Data Schema
 
@@ -64,7 +64,7 @@ The following topics are created by the `kafka-topics-init` service defined in `
 
 ### PostgreSQL Tables
 
-The following tables are defined in `sql/init_postgres.sql`. **There is no `events_raw` table** — raw, unaggregated events are never written to Postgres; they live in MinIO as partitioned Parquet, written by `raw_event_writer.py`. Postgres only holds aggregated/derived tables. Every table has exactly one writer — see the table-ownership matrix in `CLAUDE.md` before adding a new write path to any of them.
+The following tables are defined in `sql/init_postgres.sql`. **There is no `events_raw` table** — raw, unaggregated events are never written to Postgres; they live in MinIO as partitioned Parquet, written by `raw_event_writer.py`. Postgres only holds aggregated/derived tables. Every table has exactly one writer — see the table-ownership matrix in `ENGINEERING.md` before adding a new write path to any of them.
 
 #### `metrics_1min` / `metrics_5min`
 Aggregated metrics computed by a Spark job in 1-minute windows.
@@ -100,7 +100,7 @@ Contains sessionized user behavior and conversion tracking.
 | `created_at`          | `TIMESTAMPTZ` |    No    | Timestamp of when the record was created.    |
 | `updated_at`          | `TIMESTAMPTZ` |    No    | Timestamp of when the record was updated.    |
 
-*(Other tables — `product_performance`, `daily_revenue`, `daily_summary`, `product_daily_performance`, `data_quality_checks`, `pipeline_monitoring` — also exist; see `sql/init_postgres.sql` for full DDL and `CLAUDE.md` for the ownership matrix.)*
+*(Other tables — `product_performance`, `daily_revenue`, `daily_summary`, `product_daily_performance`, `data_quality_checks`, `pipeline_monitoring` — also exist; see `sql/init_postgres.sql` for full DDL and `ENGINEERING.md` for the ownership matrix.)*
 
 ### MinIO Buckets
 

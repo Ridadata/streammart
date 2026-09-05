@@ -71,7 +71,7 @@ class TestSchema:
         drafted in a schema-file comment but never actually created — raw
         events live in MinIO as Parquet, not in Postgres. If this table
         exists, something added it back without updating everything that
-        currently assumes its absence (see CLAUDE.md).
+        currently assumes its absence (see ENGINEERING.md).
         """
         assert not postgres_client.table_exists('events_raw')
 

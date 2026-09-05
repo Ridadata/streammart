@@ -16,7 +16,7 @@ IDEMPOTENCY:
 - All checks are read-only, safe to run multiple times
 - No state changes across reruns
 
-FIXES IN THIS REWRITE (see CLAUDE.md roadmap):
+FIXES IN THIS REWRITE (see ENGINEERING.md roadmap):
 - Postgres connection id was set to a non-provisioned default in some
   tasks; now everything uses 'streammart_postgres', the one connection
   airflow-init actually creates.
