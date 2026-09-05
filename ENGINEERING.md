@@ -1,6 +1,6 @@
-# CLAUDE.md — StreamMart Engineering Memory
+# StreamMart — Engineering Memory
 
-> This file is the single source of truth for any Claude Code session working on this repo.
+> This file is the single source of truth for anyone working on this repo.
 > Read it before touching code. Update it whenever you complete a roadmap item, change the
 > schema, add/remove a service, or discover a new defect. Keep the Roadmap checklist in sync
 > with reality — a checked box must mean "verified working," not "code written."
@@ -74,8 +74,8 @@ condensed into the Roadmap section below. Don't re-derive it — extend it.
 ### Repository Structure
 
 ```
-data_eng_project/
-├── CLAUDE.md                     # ← you are here
+streammart/
+├── ENGINEERING.md                # ← you are here
 ├── README.md                     # Flagship public-facing README — overview, features, quick start
 ├── ARCHITECTURE.md               # Full system diagram, table ownership, job/DAG detail
 ├── DESIGN_DECISIONS.md           # Technology alternatives + pipeline-specific tradeoffs
@@ -355,8 +355,8 @@ even if uncommented). No Alertmanager yet (Medium roadmap).
 
 - **Root-level Markdown is for high-visibility, portfolio-facing docs**: `README.md` (flagship
   overview), `ARCHITECTURE.md` (system design), `DESIGN_DECISIONS.md` (technology rationale),
-  `RUNBOOK.md` (first-run guide), `CLAUDE.md` (this file), `LICENSE`. This convention changed —
-  it used to restrict root to just README/CLAUDE.md/LICENSE, with everything else under `docs/`.
+  `RUNBOOK.md` (first-run guide), `ENGINEERING.md` (this file), `LICENSE`. This convention changed —
+  it used to restrict root to just README/ENGINEERING.md/LICENSE, with everything else under `docs/`.
   `DESIGN_DECISIONS.md` was moved from `docs/design_decisions.md` to root for exactly this reason
   (recruiters and new readers look at the repo root first, not `docs/`). Everything else —
   troubleshooting guides, screenshots, supporting material that isn't meant to be a first-click —

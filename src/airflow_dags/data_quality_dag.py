@@ -31,7 +31,7 @@ Those columns belonged to a raw-events table draft that was drafted in
 init_postgres.sql but never actually created (raw events live in MinIO, not
 Postgres — see src/spark_jobs/raw_event_writer.py). Every check below is
 written against the real schema: metrics_1min, session_summary,
-product_performance (see CLAUDE.md for the full table-ownership matrix).
+product_performance (see ENGINEERING.md for the full table-ownership matrix).
 
 These checks are distinct from the lightweight "is this table non-empty"
 heartbeat checks that sql/maintenance.sql writes every 60 seconds

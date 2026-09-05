@@ -130,7 +130,7 @@ def check_aggregations():
 
     # session_tracker.py runs in append output mode (required for
     # session_window aggregations), so a session only appears here roughly
-    # 40-70 minutes after its last event. See CLAUDE.md / session_tracker.py
+    # 40-70 minutes after its last event. See ENGINEERING.md / session_tracker.py
     # for why. A recent-window check here would false-positive by design,
     # so we only report total volume rather than a "last N minutes" count.
 

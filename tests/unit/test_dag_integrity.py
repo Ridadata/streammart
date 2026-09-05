@@ -3,7 +3,7 @@ Airflow DAG integrity tests.
 
 Two of the four DAGs in this project previously failed on every single task,
 every single run, because they referenced Postgres columns that don't exist
-(see CLAUDE.md for the full history). None of that was caught by any test,
+(see ENGINEERING.md for the full history). None of that was caught by any test,
 because there wasn't one — a broken query only fails once Airflow actually
 tries to run the task against a real database, which never happened in CI.
 
@@ -34,7 +34,7 @@ DAG_FILES = {
     'pipeline_health_check_dag.py': 'streammart_pipeline_health_check',
 }
 
-# Patterns that caused real production failures (see git history / CLAUDE.md).
+# Patterns that caused real production failures (see git history / ENGINEERING.md).
 # events_raw / .timestamp / .properties: queried a table that was drafted in
 # a DDL comment but never created — raw events live in MinIO, not Postgres.
 # is_converted: the real column on session_summary is `converted`.

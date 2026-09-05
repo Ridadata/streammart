@@ -331,7 +331,7 @@ kafka_messages_per_sec{topic="events.pageview", partition="0"} 342 1234567890
 3. **Data Catalog (Hive Metastore)**: Not needed for small data
 4. **ML Integration**: Out of scope (StreamMart is about data engineering)
 5. **Alerting rules (Alertmanager)**: Prometheus is deployed and scraping 9 real targets;
-   Alertmanager itself is the one open item on the roadmap — see [CLAUDE.md](CLAUDE.md) §9
+   Alertmanager itself is the one open item on the roadmap — see [ENGINEERING.md](ENGINEERING.md) §9
 
 ### Production Additions
 

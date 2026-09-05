@@ -254,7 +254,7 @@ psycopg2.OperationalError: could not connect to server
 relation "metrics_1min" does not exist
 ```
 
-> Note: if the error is specifically `relation "events_raw" does not exist`, that's not a bug — this table is intentionally never created. Raw per-event data lives in MinIO as Parquet (see `src/spark_jobs/raw_event_writer.py`), not in Postgres. Any code still referencing `events_raw` is the actual bug; see `CLAUDE.md`.
+> Note: if the error is specifically `relation "events_raw" does not exist`, that's not a bug — this table is intentionally never created. Raw per-event data lives in MinIO as Parquet (see `src/spark_jobs/raw_event_writer.py`), not in Postgres. Any code still referencing `events_raw` is the actual bug; see `ENGINEERING.md`.
 
 **Solution:**
 
@@ -571,7 +571,7 @@ Exception in thread...
    ```sql
    \d session_summary   -- look for the UNIQUE index / PRIMARY KEY
    ```
-2. Check the relevant Spark job's logs for the write function raising and being silently swallowed somewhere upstream of the `ON CONFLICT` — this pipeline's convention (see `CLAUDE.md` coding standards) is that write failures must propagate, never be caught-and-ignored, so a duplicate is a sign that convention was violated somewhere.
+2. Check the relevant Spark job's logs for the write function raising and being silently swallowed somewhere upstream of the `ON CONFLICT` — this pipeline's convention (see `ENGINEERING.md` coding standards) is that write failures must propagate, never be caught-and-ignored, so a duplicate is a sign that convention was violated somewhere.
 3. Raw, non-deduplicated Kafka messages are expected — at-least-once delivery is a known, accepted limitation (see `README.md` Limitations). The upsert is what makes the *aggregated* Postgres tables idempotent; it does not deduplicate the underlying event stream itself.
 
 ---

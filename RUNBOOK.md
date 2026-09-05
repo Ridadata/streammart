@@ -5,7 +5,7 @@ executed against a real, freshly wiped instance of this stack on a Windows machi
 Desktop allocated **9.64 GB RAM / 8 CPUs** — below the 12 GB this project used to claim as a
 minimum. The outputs shown are the actual outputs from that run, not illustrative examples.
 Six real configuration bugs were found and fixed during that validation; all fixes are already
-applied in this repo. See `CLAUDE.md` §1/§9 for the full change log if you want the "why" behind
+applied in this repo. See `ENGINEERING.md` §1/§9 for the full change log if you want the "why" behind
 any of them.
 
 Run every command from the repository root, in **Git Bash** (or WSL2/PowerShell — commands are
@@ -365,7 +365,7 @@ type breakdown, and the conversion funnel.
 **Note:** `kafka-exporter`'s consumer-group-lag metrics will not show data for any of the 4 Spark
 jobs specifically — Structured Streaming tracks offsets via its own checkpoint files, not Kafka's
 `__consumer_offsets`. You'll see a `schema-registry` consumer group and nothing else. This is
-expected, not a misconfiguration — see `CLAUDE.md` §9 Medium roadmap for the real fix.
+expected, not a misconfiguration — see `ENGINEERING.md` §9 Medium roadmap for the real fix.
 
 ### 8a. Verify Loki is actually ingesting logs
 

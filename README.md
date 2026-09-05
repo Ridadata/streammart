@@ -1,5 +1,3 @@
-<!-- The CI badge below points at github.com/streammart/streammart — a placeholder org/repo.
-     Update it to match wherever this actually gets pushed, or the badge will never resolve. -->
 <div align="center">
 
 # StreamMart
@@ -8,7 +6,7 @@
 
 **Clickstream ingestion → Spark Structured Streaming → Postgres + a MinIO data lake → Grafana, with Airflow reconciling the numbers every night.**
 
-[![CI](https://github.com/streammart/streammart/actions/workflows/ci.yml/badge.svg)](.github/workflows/ci.yml)
+[![CI](https://github.com/Ridadata/streammart/actions/workflows/ci.yml/badge.svg)](https://github.com/Ridadata/streammart/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 [![Python 3.11](https://img.shields.io/badge/Python-3.11-3776AB?logo=python&logoColor=white)](requirements.txt)
 [![Kafka](https://img.shields.io/badge/Kafka-KRaft-231F20?logo=apachekafka&logoColor=white)](docker-compose.yml)
@@ -131,7 +129,7 @@ longer to finish downloading dependencies and start processing — see
 [RUNBOOK.md](RUNBOOK.md) for real, timed output of the whole thing).
 
 ```bash
-git clone <repo-url> && cd streammart
+git clone https://github.com/Ridadata/streammart.git && cd streammart
 cp .env.example .env
 # Edit .env: set real values for POSTGRES_PASSWORD, MINIO_ACCESS_KEY/SECRET_KEY,
 # AIRFLOW_ADMIN_PASSWORD, GRAFANA_ADMIN_PASSWORD, AIRFLOW__CORE__FERNET_KEY.
@@ -260,7 +258,7 @@ tries to only make the second one.
 | **[ARCHITECTURE.md](ARCHITECTURE.md)** | Full system diagram, table ownership, every Kafka topic/Spark job/Airflow DAG in detail, observability stack, repo layout |
 | **[DESIGN_DECISIONS.md](DESIGN_DECISIONS.md)** | Technology alternatives considered (Kafka vs. Pulsar, Spark vs. Flink, ...) and the pipeline-specific decisions forced by Spark's actual semantics |
 | **[RUNBOOK.md](RUNBOOK.md)** | Command-by-command first-run guide with real, captured output — assumes you've never run this before |
-| **[CLAUDE.md](CLAUDE.md)** | Living engineering record: current status per component, coding standards, and the roadmap checklist |
+| **[ENGINEERING.md](ENGINEERING.md)** | Living engineering record: current status per component, coding standards, and the roadmap checklist |
 | **[docs/troubleshooting.md](docs/troubleshooting.md)** | Common failure modes and fixes |
 
 ---
@@ -269,7 +267,7 @@ tries to only make the second one.
 
 **Done:** every Critical item from the original audit; 9 of 10 High-priority items; a full live
 validation pass that found and fixed 9 real bugs across Spark, Airflow, and the observability
-stack. Full checklist with dates and detail: [CLAUDE.md §9](CLAUDE.md).
+stack. Full checklist with dates and detail: [ENGINEERING.md §9](ENGINEERING.md).
 
 **In progress / next:**
 - [ ] Prometheus alerting rules + Alertmanager (lag, freshness, job-down, DQ failure)
@@ -284,7 +282,7 @@ stack. Full checklist with dates and detail: [CLAUDE.md §9](CLAUDE.md).
 
 Issues and PRs welcome. Before opening one:
 
-1. Read [CLAUDE.md](CLAUDE.md) — it documents the coding standards and architectural principles this repo holds itself to (single-writer tables, no swallowed exceptions, no hardcoded credentials, no fabricated data to make a dashboard look alive).
+1. Read [ENGINEERING.md](ENGINEERING.md) — it documents the coding standards and architectural principles this repo holds itself to (single-writer tables, no swallowed exceptions, no hardcoded credentials, no fabricated data to make a dashboard look alive).
 2. Run `python -m pytest tests/unit -v` — no Docker required.
 3. If you're touching a Spark job, DAG, or compose service, actually run it — see [RUNBOOK.md](RUNBOOK.md). This project has a documented history of bugs that only live validation caught.
 

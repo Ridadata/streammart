@@ -9,7 +9,7 @@
 -- 1-minute approx-distinct counts (see window_aggregator.py module docstring
 -- for the full explanation). This script's remaining job is infra heartbeats
 -- and housekeeping — not business-metric computation. Table ownership for
--- every table in this schema is documented in CLAUDE.md; do not add a second
+-- every table in this schema is documented in ENGINEERING.md; do not add a second
 -- writer to any table without updating that matrix first.
 -- ============================================================================
 

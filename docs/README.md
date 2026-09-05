@@ -6,7 +6,7 @@
 2. [../ARCHITECTURE.md](../ARCHITECTURE.md): full system diagram, table ownership, every job/DAG in detail
 3. [../DESIGN_DECISIONS.md](../DESIGN_DECISIONS.md): technology alternatives considered and why
 4. [../RUNBOOK.md](../RUNBOOK.md): command-by-command first-run guide with real output
-5. [../CLAUDE.md](../CLAUDE.md): current implementation status and roadmap
+5. [../ENGINEERING.md](../ENGINEERING.md): current implementation status and roadmap
 6. [troubleshooting.md](troubleshooting.md): common failures and fixes
 
 ## Quick Start (Low Resource Mode)
@@ -146,7 +146,7 @@ Root level:
 ├── ARCHITECTURE.md         # Full system diagram, table ownership, job/DAG detail
 ├── DESIGN_DECISIONS.md     # Technology alternatives considered and why
 ├── RUNBOOK.md              # Command-by-command first-run guide
-├── CLAUDE.md               # Implementation status and roadmap
+├── ENGINEERING.md          # Implementation status and roadmap
 ├── LICENSE
 
 docs/ folder:
@@ -160,7 +160,7 @@ docs/ folder:
 If you modify the project:
 - [ ] Update `ARCHITECTURE.md` if the data flow, table ownership, or any job's settings change
 - [ ] Update `README.md`'s Project Metrics if the counts (services, topics, jobs, DAGs, tables, panels, tests) change
-- [ ] Update `CLAUDE.md`'s status table and roadmap checklist
+- [ ] Update `ENGINEERING.md`'s status table and roadmap checklist
 - [ ] Update `docs/troubleshooting.md` if a new failure mode is discovered
 - [ ] Verify every relative link in the doc you're editing still resolves — this file has previously drifted to link at files that were never created
 
@@ -195,4 +195,4 @@ If you modify the project:
 
 ---
 
-**Current implementation status, technical debt, and roadmap:** see [../CLAUDE.md](../CLAUDE.md) — kept up to date as the project evolves, rather than duplicating a status snapshot here that would just go stale again.
+**Current implementation status, technical debt, and roadmap:** see [../ENGINEERING.md](../ENGINEERING.md) — kept up to date as the project evolves, rather than duplicating a status snapshot here that would just go stale again.

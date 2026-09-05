@@ -24,7 +24,7 @@ IDEMPOTENCY:
 - Backfills are safe
 
 OWNERSHIP:
-This DAG is the sole writer of daily_revenue (see CLAUDE.md table-ownership
+This DAG is the sole writer of daily_revenue (see ENGINEERING.md table-ownership
 matrix). sql/maintenance.sql previously also wrote to this table on every
 60-second tick with no date filter — that dual-writer setup, plus the missing
 filter, is why daily_revenue used to accumulate all-time totals mislabeled as
@@ -83,7 +83,7 @@ def compute_daily_revenue(**context):
     matching daily_revenue's DECIMAL(5,4) columns — not percentages. Contrast
     with daily_summary.conversion_rate (DECIMAL(5,2)), which IS a percentage;
     that inconsistency predates this rewrite and is a known schema quirk
-    (see CLAUDE.md technical debt notes) rather than something safe to change
+    (see ENGINEERING.md technical debt notes) rather than something safe to change
     here without touching every reader of both tables.
     """
     target_date = context['ds']  # YYYY-MM-DD format
